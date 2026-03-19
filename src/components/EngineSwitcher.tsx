@@ -1,6 +1,6 @@
-import { EngineType, ENGINE_CONFIGS } from '@/types';
+import { ENGINE_CONFIGS, type EngineType } from '@/types';
 
-/** 引擎切换组件 - 两个 Tab 按钮 */
+/** 引擎切换组件 */
 interface EngineSwitcherProps {
   currentEngine: EngineType;
   onEngineChange: (engine: EngineType) => void;
@@ -12,31 +12,34 @@ export default function EngineSwitcher({
   onEngineChange,
   disabled = false,
 }: EngineSwitcherProps) {
+  const engines = ENGINE_CONFIGS;
+
   return (
-    <div className="mx-auto mb-6 max-w-5xl px-4">
-      <div className="flex gap-4 rounded-lg border border-gray-200 bg-white p-1">
-        {(Object.keys(ENGINE_CONFIGS) as EngineType[]).map((engine) => {
-          const config = ENGINE_CONFIGS[engine];
+    <div className="mx-auto mt-6 mb-8 max-w-5xl px-4 sm:px-6">
+      <div className="inline-flex w-full gap-1 rounded-xl bg-gray-100 p-1 sm:w-auto">
+        {(Object.keys(engines) as EngineType[]).map((engine) => {
+          const config = engines[engine];
           const isSelected = currentEngine === engine;
-          const isDisabled = disabled;
 
           return (
             <button
               key={engine}
-              onClick={() => onEngineChange(engine)}
-              disabled={isDisabled}
+              onClick={() => !disabled && onEngineChange(engine)}
+              disabled={disabled}
               className={`
-                flex-1 rounded-md px-4 py-3 text-left transition-all
+                flex-1 rounded-lg px-4 py-3 text-left transition-all duration-200 sm:flex-none sm:min-w-[200px]
                 ${
                   isSelected
-                    ? 'bg-blue-50 text-blue-700 shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-50'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
                 }
-                ${isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
+                ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}
               `}
             >
               <div className="font-medium">{config.label}</div>
-              <div className="text-sm opacity-80">{config.sublabel}</div>
+              <div className={`mt-0.5 text-xs ${isSelected ? 'text-gray-500' : 'text-gray-400'}`}>
+                {config.sublabel}
+              </div>
             </button>
           );
         })}

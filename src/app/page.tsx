@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { EngineType, ProcessingState, ENGINE_CONFIGS } from '@/types';
+import type { EngineType, ProcessingState } from '@/types';
+import { ENGINE_CONFIGS } from '@/types';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import EngineSwitcher from '@/components/EngineSwitcher';
 import UploadZone from '@/components/UploadZone';
 import ProcessingView from '@/components/ProcessingView';
 import ResultView from '@/components/ResultView';
-import ColorPicker from '@/components/ColorPicker';
 import PrivacyConfirm from '@/components/PrivacyConfirm';
 import Toast from '@/components/Toast';
 import { validateFile } from '@/utils/validation';
@@ -30,44 +30,50 @@ export default function HomePage() {
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [backgroundColor, setBackgroundColor] = useState<string | null>(null);
 
-  // Toast 状态
+  // Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const { processImage } = useEngineManager();
 
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+  }, []);
+
   // 切换引擎
-  const handleEngineChange = (newEngine: EngineType) => {
+  const handleEngineChange = useCallback((newEngine: EngineType) => {
+    if (newEngine === engine) return;
     if (newEngine === 'cloud') {
       setPendingEngine(newEngine);
       setShowPrivacyConfirm(true);
     } else {
       setEngine(newEngine);
     }
-  };
+  }, [engine]);
 
-  // 确认切换到云端
-  const handleConfirmCloudSwitch = () => {
-    if (pendingEngine) {
-      setEngine(pendingEngine);
-      setPendingEngine(null);
-    }
-    setShowPrivacyConfirm(false);
-  };
-
-  // 取消切换
-  const handleCancelCloudSwitch = () => {
+  const handleConfirmCloudSwitch = useCallback(() => {
+    if (pendingEngine) setEngine(pendingEngine);
     setPendingEngine(null);
     setShowPrivacyConfirm(false);
-  };
+  }, [pendingEngine]);
+
+  const handleCancelCloudSwitch = useCallback(() => {
+    setPendingEngine(null);
+    setShowPrivacyConfirm(false);
+  }, []);
 
   // 处理文件上传
-  const handleFileSelect = async (file: File) => {
+  const handleFileSelect = useCallback(async (file: File) => {
     const config = ENGINE_CONFIGS[engine];
 
     // 校验文件
-    const validation = await validateFile(file, config);
-    if (!validation.valid) {
-      setToastMessage(validation.error || '文件校验失败');
+    try {
+      const validation = await validateFile(file, config);
+      if (!validation.valid) {
+        showToast(validation.error || '文件校验失败');
+        return;
+      }
+    } catch (err) {
+      showToast('文件校验异常，请重试');
       return;
     }
 
@@ -76,110 +82,109 @@ export default function HomePage() {
     setOriginalUrl(URL.createObjectURL(file));
     setResultBlob(null);
     setResultUrl(null);
+    setBackgroundColor(null);
 
     // 开始处理
     try {
-      const { blob, engineUsed, fallbackUsed } = await processImage(file, engine, (state: Partial<ProcessingState>) => {
-        setProcessingState((prev) => ({ ...prev, ...state, engineUsed }));
+      const result = await processImage(file, engine, (state: Partial<ProcessingState>) => {
+        setProcessingState((prev) => ({ ...prev, ...state }));
       });
 
-      setResultBlob(blob);
-      setResultUrl(URL.createObjectURL(blob));
+      setResultBlob(result.blob);
+      setResultUrl(URL.createObjectURL(result.blob));
       setProcessingState({
         status: 'done',
-        engineUsed,
-        fallbackUsed,
+        engineUsed: result.engineUsed,
+        fallbackUsed: result.fallbackUsed,
       });
 
-      if (fallbackUsed) {
-        setToastMessage('云端处理失败，已自动切换到免费模式');
+      if (result.fallbackUsed) {
+        showToast('云端处理失败，已自动切换到免费模式');
       }
     } catch (error) {
       setProcessingState({
         status: 'error',
         errorMessage: error instanceof Error ? error.message : '处理失败，请重试',
+        progress: undefined,
+        progressText: undefined,
       });
     }
-  };
+  }, [engine, processImage, showToast]);
 
   // 处理下载
-  const handleDownload = async () => {
+  const handleDownload = useCallback(async () => {
     if (!resultBlob || !originalFile) return;
 
     try {
       let blobToDownload = resultBlob;
-
-      // 如果选择了背景色，先合成
       if (backgroundColor) {
         blobToDownload = await applyBackgroundColor(resultBlob, backgroundColor);
       }
 
-      const filename = generateDownloadFilename(originalFile.name, processingState.engineUsed || 'local');
+      const filename = generateDownloadFilename(originalFile.name, processingState.engineUsed || engine);
       downloadBlob(blobToDownload, filename);
-    } catch (error) {
-      setToastMessage('下载失败，请重试');
+    } catch {
+      showToast('下载失败，请重试');
     }
-  };
+  }, [resultBlob, originalFile, backgroundColor, processingState.engineUsed, engine, showToast]);
 
   // 重新上传
-  const handleReupload = () => {
+  const handleReupload = useCallback(() => {
+    if (originalUrl) URL.revokeObjectURL(originalUrl);
+    if (resultUrl) URL.revokeObjectURL(resultUrl);
     setProcessingState({ status: 'idle' });
     setOriginalFile(null);
     setOriginalUrl(null);
     setResultBlob(null);
     setResultUrl(null);
     setBackgroundColor(null);
-  };
+  }, [originalUrl, resultUrl]);
 
-  // 重试处理
-  const handleRetry = () => {
+  // 重试
+  const handleRetry = useCallback(() => {
     if (originalFile) {
       handleFileSelect(originalFile);
     }
-  };
+  }, [originalFile, handleFileSelect]);
 
-  // 判断当前是否在处理中
+  // 状态判断
   const isProcessing = ['uploading', 'loading-model', 'processing'].includes(processingState.status);
   const showResult = processingState.status === 'done' && resultUrl;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="flex min-h-screen flex-col bg-gray-50">
       <Header />
 
-      <main className="pb-12">
+      <main className="flex-1 py-4">
         {/* 引擎切换 */}
         <EngineSwitcher
           currentEngine={engine}
           onEngineChange={handleEngineChange}
-          disabled={isProcessing || showResult ? true : false}
+          disabled={isProcessing ? true : false}
         />
 
         {/* 主内容区 */}
         {isProcessing ? (
-          <ProcessingView state={processingState} onRetry={handleRetry} />
+          <ProcessingView
+            state={processingState}
+            originalUrl={originalUrl}
+            onRetry={handleRetry}
+          />
         ) : showResult ? (
-          <>
-            <ResultView
-              originalUrl={originalUrl!}
-              resultUrl={resultUrl!}
-              engineUsed={processingState.engineUsed!}
-              backgroundColor={backgroundColor}
-              onBackgroundColorChange={setBackgroundColor}
-              onDownload={handleDownload}
-              onReupload={handleReupload}
-            />
-            <div className="mx-auto mt-4 max-w-5xl px-4">
-              <ColorPicker
-                selectedColor={backgroundColor}
-                onColorSelect={setBackgroundColor}
-              />
-            </div>
-          </>
+          <ResultView
+            originalUrl={originalUrl!}
+            resultUrl={resultUrl!}
+            engineUsed={processingState.engineUsed!}
+            fallbackUsed={processingState.fallbackUsed}
+            backgroundColor={backgroundColor}
+            onBackgroundColorChange={setBackgroundColor}
+            onDownload={handleDownload}
+            onReupload={handleReupload}
+          />
         ) : (
           <UploadZone
             engineConfig={ENGINE_CONFIGS[engine]}
             onFileSelect={handleFileSelect}
-            disabled={false}
           />
         )}
       </main>
@@ -193,7 +198,7 @@ export default function HomePage() {
         onCancel={handleCancelCloudSwitch}
       />
 
-      {/* Toast 提示 */}
+      {/* Toast */}
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
     </div>
   );
