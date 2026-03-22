@@ -26,8 +26,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { planType } = await request.json()
-    const plan = SUBSCRIPTION_PLANS[planType]
+    const { planId, planType } = await request.json()
+    const plan = SUBSCRIPTION_PLANS[planId]
 
     if (!plan) {
       return NextResponse.json(
