@@ -93,7 +93,11 @@ export default function PricingPage() {
 
   const handlePurchase = async (planId: string, planType: 'credit' | 'subscription') => {
     try {
-      const res = await fetch('/api/payments/create-order', {
+      const endpoint = planType === 'subscription'
+        ? '/api/payments/subscribe'
+        : '/api/payments/create-order'
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ planId, planType }),
@@ -107,11 +111,11 @@ export default function PricingPage() {
       }
 
       if (data.error) {
-        alert(data.message || '创建订单失败')
+        alert(data.message || '操作失败')
         return
       }
 
-      // 跳转 PayPal 支付
+      // 跳转 PayPal
       if (data.approvalUrl) {
         window.location.href = data.approvalUrl
       }

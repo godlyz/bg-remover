@@ -10,45 +10,57 @@ export default function AccountPage() {
   const [usage, setUsage] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelResult, setCancelResult] = useState<string | null>(null)
+
+  const fetchUserInfo = async () => {
+    try {
+      const res = await fetch('/api/account')
+      if (res.status === 401) { router.push('/'); return null }
+      return res.json()
+    } catch { return null }
+  }
 
   useEffect(() => {
-    // 直接调用 /api/account，不需要 session（API 自己检查 cookie）
-    fetch('/api/account')
-      .then(res => {
-        if (res.status === 401) {
-          // 未登录，跳转首页
-          router.push('/')
-          return null
-        }
-        return res.json()
-      })
-      .then(data => {
-        if (!data) return
-        if (data.error) {
-          setError(data.message)
-          setLoading(false)
-          return
-        }
-        setUserInfo(data)
-        setLoading(false)
+    fetchUserInfo().then(data => {
+      if (!data) return
+      if (data.error) { setError(data.message); setLoading(false); return }
+      setUserInfo(data)
+      setLoading(false)
 
-        // 获取用量
-        return fetch('/api/usage')
-          .then(res => res.json())
-          .then(u => { if (!u.error) setUsage(u) })
-          .catch(() => {})
-      })
-      .catch(() => {
-        setError('获取用户信息失败')
-        setLoading(false)
-      })
+      fetch('/api/usage')
+        .then(res => res.json())
+        .then(u => { if (!u.error) setUsage(u) })
+        .catch(() => {})
+    })
   }, [router])
 
-  const planName = (plan: string) => {
+  const handleCancelSubscription = async () => {
+    if (!confirm('确定要取消订阅吗？取消后当月仍可使用，下月将降为免费。')) return
+
+    setCancelling(true)
+    try {
+      const res = await fetch('/api/payments/cancel-subscription', { method: 'POST' })
+      const data = await res.json()
+
+      if (data.success) {
+        setCancelResult(data.message)
+        // 刷新用户信息
+        const updated = await fetchUserInfo()
+        if (updated && !updated.error) setUserInfo(updated)
+      } else {
+        alert(data.message || '取消失败')
+      }
+    } catch {
+      alert('网络错误')
+    }
+    setCancelling(false)
+  }
+
+  const planLabel = (plan: string) => {
     switch (plan) {
-      case 'starter': return '入门'
-      case 'pro': return '进阶'
-      case 'business': return '专业'
+      case 'starter': return '月订阅-基础版 $9.99/月'
+      case 'pro': return '月订阅-进阶版 $19.99/月'
       default: return '免费'
     }
   }
@@ -61,21 +73,23 @@ export default function AccountPage() {
     )
   }
 
-  if (error) {
+  if (error || !userInfo) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-8">
-        <div className="rounded-xl bg-red-50 p-4 text-center text-sm text-red-600">{error}</div>
-        <div className="mt-6 text-center">
-          <Link href="/" className="text-sm text-blue-600 hover:underline">← 返回首页</Link>
-        </div>
+        <div className="rounded-xl bg-red-50 p-4 text-center text-sm text-red-600">{error || '加载失败'}</div>
+        <div className="mt-6 text-center"><Link href="/" className="text-sm text-blue-600 hover:underline">← 返回首页</Link></div>
       </div>
     )
   }
+
+  const hasActiveSubscription = userInfo.subscription && userInfo.subscription.status === 'active'
+  const hasCredits = (userInfo.credits || 0) > 0
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
       <h1 className="mb-8 text-2xl font-bold text-gray-900">个人中心</h1>
 
+      {/* 用户信息 */}
       <div className="mb-6 rounded-2xl border border-gray-100 bg-white p-6">
         <div className="flex items-center gap-4">
           {userInfo.avatarUrl && (
@@ -89,16 +103,48 @@ export default function AccountPage() {
         </div>
       </div>
 
+      {/* 积分余额 */}
+      {hasCredits && (
+        <div className="mb-6 rounded-2xl border border-gray-100 bg-white p-6">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-semibold text-gray-900">积分余额</h2>
+            <span className="text-2xl font-bold text-blue-600">{userInfo.credits}</span>
+          </div>
+          <p className="text-sm text-gray-400">永久有效，用完为止</p>
+        </div>
+      )}
+
+      {/* 订阅信息 */}
       <div className="mb-6 rounded-2xl border border-gray-100 bg-white p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-900">当前套餐</h2>
-          <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-600">
-            {planName(userInfo.plan)}
+          <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
+            hasActiveSubscription ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'
+          }`}>
+            {planLabel(userInfo.plan)}
           </span>
         </div>
 
-        {usage && (
-          <div className="mt-4">
+        {/* 月订阅用量 */}
+        {hasActiveSubscription && usage && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
+              <span>本月已用</span>
+              <span>{usage.used} / {usage.total} 次</span>
+            </div>
+            <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
+              <div
+                className="h-full rounded-full bg-green-500 transition-all"
+                style={{ width: `${Math.min(100, (usage.used / usage.total) * 100)}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-gray-400">每月 1 号重置</p>
+          </div>
+        )}
+
+        {/* 免费用量 */}
+        {!hasActiveSubscription && usage && (
+          <div className="mb-4">
             <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
               <span>已用</span>
               <span>{usage.used} / {usage.total} 次</span>
@@ -109,19 +155,37 @@ export default function AccountPage() {
                 style={{ width: `${Math.min(100, (usage.used / usage.total) * 100)}%` }}
               />
             </div>
-            <p className="mt-2 text-xs text-gray-400">
-              {usage.plan === 'free' ? '（终身额度）' : '（每月 1 号重置）'}
-            </p>
+            <p className="mt-2 text-xs text-gray-400">（终身额度）</p>
           </div>
         )}
 
-        <div className="mt-4 pt-4 border-t border-gray-100">
-          <Link href="/pricing" className="block w-full rounded-xl bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-blue-700">
-            升级套餐
-          </Link>
-        </div>
+        {/* 取消订阅 */}
+        {cancelResult && (
+          <div className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-700">{cancelResult}</div>
+        )}
+
+        {hasActiveSubscription && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <button
+              onClick={handleCancelSubscription}
+              disabled={cancelling}
+              className="block w-full rounded-xl border border-red-200 bg-white px-4 py-2.5 text-center text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+            >
+              {cancelling ? '取消中...' : '取消订阅（下月生效）'}
+            </button>
+          </div>
+        )}
+
+        {!hasActiveSubscription && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <Link href="/pricing" className="block w-full rounded-xl bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-blue-700">
+              升级套餐
+            </Link>
+          </div>
+        )}
       </div>
 
+      {/* 付费记录 */}
       <div className="rounded-2xl border border-gray-100 bg-white p-6">
         <h2 className="mb-4 text-lg font-semibold text-gray-900">付费记录</h2>
         <div className="py-8 text-center text-sm text-gray-400">
