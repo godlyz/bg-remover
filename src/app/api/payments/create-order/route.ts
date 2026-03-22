@@ -1,22 +1,18 @@
-import { getCloudflareEnv } from '@/lib/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
-import { getSessionFromRequest } from '@/lib/session'
+import { getCloudflareEnv } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
-const PLAN_CONFIG: Record<string, { credits?: number; creditsPerMonth?: number }> = {
-  credits_10: { credits: 10 },
-  credits_30: { credits: 30 },
-  credits_80: { credits: 80 },
-  monthly_basic: { creditsPerMonth: 25 },
-  monthly_pro: { creditsPerMonth: 60 },
+const PLAN_CONFIG: Record<string, { credits: number; amount: number }> = {
+  credits_10: { credits: 10, amount: 4.99 },
+  credits_30: { credits: 30, amount: 12.99 },
+  credits_80: { credits: 80, amount: 29.90 },
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // 从 cookie 解析 session（不依赖 auth()）
-    const session = getSessionFromRequest(request)
-    if (!session?.user?.id) {
+    const userEmail = request.headers.get('x-user-id') || ''
+    if (!userEmail) {
       return NextResponse.json(
         { error: 'unauthorized', message: '请先登录' },
         { status: 401 }
@@ -43,7 +39,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 获取 PayPal Access Token
     const tokenRes = await fetch('https://api-m.sandbox.paypal.com/v1/oauth2/token', {
       method: 'POST',
       headers: {
@@ -61,9 +56,8 @@ export async function POST(request: NextRequest) {
     }
 
     const { access_token } = await tokenRes.json()
-
-    // 创建 PayPal 一次性支付订单
     const baseUrl = process.env.NEXTAUTH_URL || 'https://www.bg-remover.site'
+
     const orderRes = await fetch('https://api-m.sandbox.paypal.com/v2/checkout/orders', {
       method: 'POST',
       headers: {
@@ -73,16 +67,13 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         intent: 'CAPTURE',
         purchase_units: [{
-          description: `BGFree ${planId.replace('_', ' ')} (云端处理)`,
-          amount: {
-            currency_code: 'USD',
-            value: plan.credits ? (plan.credits * 0.5).toFixed(2) : (plan.creditsPerMonth || 0).toFixed(2),
-          },
-          custom_id: `${session.user.id}:${planId}`,
+          description: `BGFree ${planId.replace('_', ' ')} 积分包`,
+          amount: { currency_code: 'USD', value: plan.amount.toFixed(2) },
+          custom_id: `${userEmail}:credit:${planId}`,
         }],
         application_context: {
           brand_name: 'BGFree',
-          return_url: `${baseUrl}/api/payments/confirm?planId=${planId}`,
+          return_url: `${baseUrl}/api/payments/confirm?planId=${planId}&planType=credit`,
           cancel_url: `${baseUrl}/payment?status=cancelled`,
           user_action: 'PAY_NOW',
         },
@@ -100,16 +91,16 @@ export async function POST(request: NextRequest) {
 
     const orderData = await orderRes.json()
 
-    // 保存订单到 D1
-    const env = getCloudflareEnv(); const DB = env.DB
+    // 保存到 D1
+    const env = getCloudflareEnv()
+    const DB = env.DB
     if (DB && DB.prepare) {
-      // 确保用户存在
       await DB.prepare(
-        "INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)"
-      ).bind(session.user.id, session.user.id).run()
+        "INSERT OR IGNORE INTO users (id, email, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)"
+      ).bind(userEmail, userEmail).run()
       await DB.prepare(
         "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, 'pending')"
-      ).bind(orderData.id, session.user.id, orderData.id, planId).run()
+      ).bind(orderData.id, userEmail, orderData.id, planId).run()
     }
 
     const approvalUrl = orderData.links?.find((l: any) => l.rel === 'approve')?.href
@@ -121,10 +112,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({
-      orderId: orderData.id,
-      approvalUrl: approvalUrl,
-    })
+    return NextResponse.json({ orderId: orderData.id, approvalUrl })
   } catch (error) {
     console.error('Create order error:', error)
     return NextResponse.json(

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSessionFromRequest } from '@/lib/session'
 import { getCloudflareEnv } from '@/lib/cloudflare'
 
 export const runtime = "edge"
