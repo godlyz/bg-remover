@@ -1,4 +1,4 @@
-import { getDB } from '@/lib/cloudflare'
+import { getCloudflareEnv } from '@/lib/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = "edge"
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 更新 D1
-    const DB = await getDB()
+    const env = getCloudflareEnv(); const DB = env.DB
 
     if (DB && DB.prepare) {
       // 保存支付记录

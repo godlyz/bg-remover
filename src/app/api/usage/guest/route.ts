@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getKV } from '@/lib/cloudflare'
+import { getCloudflareEnv } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
 export async function GET(request: NextRequest) {
-  const KV = await getKV()
+  const cfEnv = getCloudflareEnv()
+  const KV = cfEnv.KV
 
   const ip = request.headers.get('cf-connecting-ip') || 'unknown'
   const ua = request.headers.get('user-agent') || ''

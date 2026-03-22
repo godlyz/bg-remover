@@ -1,4 +1,4 @@
-import { getDB } from '@/lib/cloudflare'
+import { getCloudflareEnv } from '@/lib/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/app/api/auth/[...nextauth]/route'
 
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const DB = await getDB()
+    const env = getCloudflareEnv(); const DB = env.DB
     const userId = session.user.id
 
     // 查找活跃订阅

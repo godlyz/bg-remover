@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDB } from '@/lib/cloudflare'
+import { getCloudflareEnv } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
 
     const orderData = await orderRes.json()
 
-    const DB = await getDB()
+    const env = getCloudflareEnv(); const DB = env.DB
     if (DB && DB.prepare) {
       await DB.prepare(
         "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, 'pending')"

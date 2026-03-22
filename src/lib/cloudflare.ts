@@ -1,26 +1,18 @@
 /**
- * 获取 Cloudflare D1 数据库绑定
- * 在 Cloudflare Pages 上通过 getRequestContext 获取
+ * 获取 Cloudflare env bindings (D1, KV etc.)
+ * 
+ * IMPORTANT: getRequestContext 只能在 request handler 内部调用。
+ * @cloudflare/next-on-pages 通过 AsyncLocalStorage 注入 request context。
+ * 
+ * 在构建后的 _worker.js 中，env 通过 requestContextAsyncLocalStorage 提供。
+ * 直接从全局 Symbol 获取：
  */
-export async function getDB(): Promise<any> {
-  try {
-    const { getRequestContext } = await import('@cloudflare/next-on-pages/worker')
-    const ctx = getRequestContext()
-    return ctx.env.DB
-  } catch {
-    return null
-  }
-}
 
-/**
- * 获取 Cloudflare KV 绑定
- */
-export async function getKV(): Promise<any> {
-  try {
-    const { getRequestContext } = await import('@cloudflare/next-on-pages/worker')
-    const ctx = getRequestContext()
-    return ctx.env.KV
-  } catch {
-    return null
+export function getCloudflareEnv(): any {
+  const symbol = Symbol.for('__cloudflare-request-context__')
+  const store = (globalThis as any)[symbol]
+  if (store) {
+    return store.env || {}
   }
+  return {}
 }
