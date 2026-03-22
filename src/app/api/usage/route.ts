@@ -36,20 +36,18 @@ export async function GET(request: NextRequest) {
           credits = 0
         }
 
+        // 先到期先用
         if (credits > 0) {
-          // 有积分，优先显示积分
           used = 0
           total = credits
         } else if (plan !== 'free') {
-          // 月订阅
           const month = new Date().toISOString().slice(0, 7)
           const row = await DB.prepare(
             "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
           ).bind(userId, month).first()
           used = row ? (row.cloud_used as number) : 0
-          total = plan === 'starter' ? 25 : plan === 'pro' ? 60 : 300
+          total = plan === 'pro' ? 60 : plan === 'starter' ? 25 : 0
         } else {
-          // 免费
           used = user.cloud_used_lifetime as number
           total = 3
         }

@@ -2,17 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = "edge"
 
-/** 获取套餐对应的最大月用量 */
-function getMaxUsage(plan: string, credits: number): number {
-  switch (plan) {
-    case 'free': return 3
-    case 'starter': return 25
-    case 'pro': return 60
-    case 'business': return 300
-    default: return 0
-  }
-}
-
 /** 简单 hash */
 async function hashString(str: string): Promise<string> {
   const encoder = new TextEncoder()
@@ -63,7 +52,10 @@ export async function POST(request: NextRequest) {
   let userType = 'guest'
   let plan = 'free'
   let credits = 0
-  let creditsExpired = false
+  let creditsExpiry: string | null = null
+  let monthlyUsed = 0
+  let monthlyTotal = 0
+  let freeUsed = 0
 
   const authSession = request.headers.get('x-auth-session')
   if (authSession) {
@@ -78,19 +70,26 @@ export async function POST(request: NextRequest) {
           if (user) {
             plan = user.plan as string
             credits = user.credits as number || 0
-            // 检查积分是否过期
-            const expiry = user.credits_expiry as string | null
-            if (credits > 0 && expiry && new Date(expiry) < new Date()) {
+            creditsExpiry = user.credits_expiry as string | null
+            freeUsed = user.cloud_used_lifetime as number || 0
+
+            // 清理过期积分
+            if (credits > 0 && creditsExpiry && new Date(creditsExpiry) < new Date()) {
               credits = 0
-              creditsExpired = true
+              creditsExpiry = null
+              DB.prepare(
+                "UPDATE users SET credits = 0, credits_expiry = NULL, updated_at = datetime('now') WHERE id = ?"
+              ).bind(userId).run()
             }
-            // 消耗优先级：积分 > 月订阅 > 免费
-            if (credits > 0) {
-              userType = 'credits'
-            } else if (plan !== 'free') {
-              userType = 'paid'
-            } else {
-              userType = 'free'
+
+            // 月订阅用量
+            if (plan !== 'free') {
+              monthlyTotal = plan === 'pro' ? 60 : plan === 'starter' ? 25 : 0
+              const month = new Date().toISOString().slice(0, 7)
+              const row = await DB.prepare(
+                "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
+              ).bind(userId, month).first()
+              monthlyUsed = row ? (row.cloud_used as number) : 0
             }
           }
         }
@@ -98,52 +97,52 @@ export async function POST(request: NextRequest) {
     } catch { /* ignore */ }
   }
 
-  // 清理过期积分（异步，不影响请求）
-  if (creditsExpired && DB && DB.prepare && userId) {
-    DB.prepare(
-      "UPDATE users SET credits = 0, credits_expiry = NULL, updated_at = datetime('now') WHERE id = ?"
-    ).bind(userId).run()
+  // 确定消耗类型：先到期先用
+  if (credits > 0 && creditsExpiry) {
+    userType = 'credits'
+  } else if (monthlyUsed < monthlyTotal) {
+    userType = 'paid'
+  } else if (freeUsed < 3) {
+    userType = 'free'
+  } else {
+    // 全部用完
   }
 
-  // --- 2. 计算用量 ---
+  // --- 2. 计算用量和额度 ---
   const fingerprint = await hashString(
     `${request.headers.get('cf-connecting-ip') || 'unknown'}:${request.headers.get('user-agent') || ''}`
   )
 
-  let currentUsage = 0
-
   if (userType === 'guest') {
-    // 未登录不可用
     return NextResponse.json(
       { error: 'quota_exceeded', type: 'guest', plan, used: 0, total: 0, message: '注册后可使用云端处理' },
       { status: 402 }
     )
-  } else if (userType === 'credits') {
-    // 积分用户：检查积分余额
-    currentUsage = 0 // 积分用 credits 字段
-  } else if (userType === 'free' && DB && DB.prepare && userId) {
-    const user = await DB.prepare(
-      "SELECT cloud_used_lifetime FROM users WHERE id = ?"
-    ).bind(userId).first()
-    currentUsage = user ? (user.cloud_used_lifetime as number) : 0
-  } else if (userType === 'paid' && DB && DB.prepare && userId) {
-    const month = new Date().toISOString().slice(0, 7)
-    const row = await DB.prepare(
-      "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
-    ).bind(userId, month).first()
-    currentUsage = row ? (row.cloud_used as number) : 0
   }
 
-  const maxUsage = getMaxUsage(plan, credits)
+  if (userType === '') {
+    // 全部用完
+    return NextResponse.json(
+      { error: 'quota_exceeded', type: 'exhausted', plan, used: 0, total: 0, message: '所有额度已用完，请购买积分或订阅' },
+      { status: 402 }
+    )
+  }
+
+  let currentUsage = 0
+  let maxUsage = 0
 
   if (userType === 'credits') {
-    if (credits <= 0) {
-      return NextResponse.json(
-        { error: 'quota_exceeded', type: 'credits', plan, used: 0, total: 0, message: '积分已用完，请购买更多积分' },
-        { status: 402 }
-      )
-    }
-  } else if (currentUsage >= maxUsage) {
+    maxUsage = credits
+    currentUsage = 0
+  } else if (userType === 'paid') {
+    currentUsage = monthlyUsed
+    maxUsage = monthlyTotal
+  } else {
+    currentUsage = freeUsed
+    maxUsage = 3
+  }
+
+  if (currentUsage >= maxUsage) {
     return NextResponse.json(
       {
         error: 'quota_exceeded',
