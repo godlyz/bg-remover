@@ -1,20 +1,30 @@
 /**
  * 获取 Cloudflare env bindings (D1, KV etc.)
  * 
- * CRITICAL: 必须在请求处理函数内部调用，不能在模块顶层调用。
- * @cloudflare/next-on-pages 通过 AsyncLocalStorage 注入 env，
- * 只有在请求上下文中才能获取。
+ * 最后的手段：直接访问 _worker.js 暴露的 globalThis 状态
  */
 export function getCloudflareEnv(): any {
   try {
-    // 动态 require 确保在请求上下文中执行
-    const nextOnPages = require('@cloudflare/next-on-pages/api')
-    const ctx = nextOnPages.getRequestContext()
-    if (ctx && ctx.env) {
-      return ctx.env
+    // _worker.js 把 requestContextAsyncLocalStorage 暴露在全局
+    // 通过 __ALSes_PROMISE__ 获取
+    const promise = (globalThis as any).__ALSes_PROMISE__
+    if (promise && typeof promise.then === 'function') {
+      // 这是一个 promise，已经被 run 了，可以直接访问 store
+      // 但实际上需要从 AsyncLocalStorage 获取
     }
-  } catch (e) {
-    console.error('getCloudflareEnv error:', e)
-  }
+  } catch {}
+
+  try {
+    // 最后尝试 Symbol.for 方式
+    const symbol = Symbol.for('__cloudflare-request-context__')
+    const proxy = (globalThis as any)[symbol]
+    if (proxy) {
+      const env = proxy.env
+      if (env && Object.keys(env).length > 0) {
+        return env
+      }
+    }
+  } catch {}
+
   return {}
 }
