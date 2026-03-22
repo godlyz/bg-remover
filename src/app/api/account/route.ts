@@ -5,16 +5,14 @@ export const runtime = "edge"
 
 export async function GET(request: NextRequest) {
   try {
-    const session = getSessionFromRequest(request)
-
-    if (!session?.user?.id) {
+    const userId = request.headers.get('x-user-id') || ''
+    if (!userId) {
       return NextResponse.json(
         { error: 'unauthorized', message: '请先登录' },
         { status: 401 }
       )
     }
 
-    const userId = session.user.id
     const env = getCloudflareEnv()
     const DB = env.DB
 
@@ -33,10 +31,9 @@ export async function GET(request: NextRequest) {
       ).bind(userId).first()
 
       if (!user) {
-        // 首次访问，创建用户
         await DB.prepare(
           "INSERT INTO users (id, google_id, email, name, avatar_url, plan, cloud_used_lifetime) VALUES (?, ?, ?, ?, ?, 'free', 0)"
-        ).bind(userId, userId, session.user.email || "", session.user.name || "", session.user.image || "").run()
+        ).bind(userId, userId, userId, '', '', '').run()
       } else {
         plan = user.plan as string
         credits = user.credits as number || 0

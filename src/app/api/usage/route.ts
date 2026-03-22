@@ -5,16 +5,15 @@ export const runtime = "edge"
 
 export async function GET(request: NextRequest) {
   try {
-    const session = getSessionFromRequest(request)
+    const userId = request.headers.get('x-user-id') || ''
 
-    if (!session?.user?.id) {
+    if (!userId) {
       return NextResponse.json(
         { error: 'unauthorized', message: '请先登录', used: 0, total: 0, plan: 'free', credits: 0 },
         { status: 401 }
       )
     }
 
-    const userId = session.user.id
     const env = getCloudflareEnv(); const DB = env.DB
 
     let plan = 'free'
