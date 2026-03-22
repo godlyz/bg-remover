@@ -41,12 +41,19 @@ export async function GET(request: NextRequest) {
           used = 0
           total = credits
         } else if (plan !== 'free') {
-          const month = new Date().toISOString().slice(0, 7)
-          const row = await DB.prepare(
-            "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
-          ).bind(userId, month).first()
-          used = row ? (row.cloud_used as number) : 0
-          total = plan === 'pro' ? 60 : plan === 'starter' ? 25 : 0
+          // 月订阅：按订阅周期
+          const sub = await DB.prepare(
+            "SELECT period_start, period_end, credits_per_month FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
+          ).bind(userId).first()
+          if (sub) {
+            const periodStart = sub.period_start as string
+            const periodKey = periodStart ? periodStart.slice(0, 7) : new Date().toISOString().slice(0, 7)
+            const row = await DB.prepare(
+              "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
+            ).bind(userId, periodKey).first()
+            used = row ? (row.cloud_used as number) : 0
+            total = sub.credits_per_month as number || 0
+          }
         } else {
           used = user.cloud_used_lifetime as number
           total = 3

@@ -129,11 +129,11 @@ export default function AccountPage() {
           </span>
         </div>
 
-        {/* 月订阅用量 */}
+          {/* 月订阅用量 */}
         {hasActiveSubscription && usage && (
           <div className="mb-4">
             <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
-              <span>本月已用</span>
+              <span>周期已用</span>
               <span>{usage.used} / {usage.total} 次</span>
             </div>
             <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
@@ -142,7 +142,11 @@ export default function AccountPage() {
                 style={{ width: `${Math.min(100, (usage.used / usage.total) * 100)}%` }}
               />
             </div>
-            <p className="mt-2 text-xs text-gray-400">每月 1 号重置</p>
+            {userInfo.subscription?.periodEnd && (
+              <p className="mt-2 text-xs text-gray-400">
+                周期截止：{new Date(userInfo.subscription.periodEnd).toLocaleDateString('zh-CN')}
+              </p>
+            )}
           </div>
         )}
 

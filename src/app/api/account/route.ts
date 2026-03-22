@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
         status: sub.status,
         creditsPerMonth: sub.credits_per_month,
         startDate: sub.start_date,
+        periodEnd: sub.period_end,
         createdAt: sub.created_at,
       }
     }

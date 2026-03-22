@@ -63,10 +63,12 @@ export async function GET(request: NextRequest) {
       ).bind(subscriptionId).first()
 
       if (sub) {
-        // 更新订阅状态
+        // 更新订阅状态和周期
+        const now = new Date()
+        const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
         await DB.prepare(
-          "UPDATE subscriptions SET status = 'active', start_date = datetime('now') WHERE id = ?"
-        ).bind(sub.id).run()
+          "UPDATE subscriptions SET status = 'active', start_date = datetime('now'), period_start = ?, period_end = ? WHERE id = ?"
+        ).bind(now.toISOString(), periodEnd, sub.id).run()
 
         // 更新用户套餐
         const planValue = sub.plan_type === 'monthly_pro' ? 'pro' : 'starter'

@@ -53,8 +53,8 @@ export async function POST(request: NextRequest) {
   let plan = 'free'
   let credits = 0
   let creditsExpiry: string | null = null
-  let monthlyUsed = 0
-  let monthlyTotal = 0
+  let subUsed = 0
+  let subTotal = 0
   let freeUsed = 0
 
   const authSession = request.headers.get('x-auth-session')
@@ -82,14 +82,32 @@ export async function POST(request: NextRequest) {
               ).bind(userId).run()
             }
 
-            // 月订阅用量
+            // 月订阅用量（按订阅周期 30 天计算）
             if (plan !== 'free') {
-              monthlyTotal = plan === 'pro' ? 60 : plan === 'starter' ? 25 : 0
-              const month = new Date().toISOString().slice(0, 7)
-              const row = await DB.prepare(
-                "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
-              ).bind(userId, month).first()
-              monthlyUsed = row ? (row.cloud_used as number) : 0
+              const sub = await DB.prepare(
+                "SELECT id, credits_per_month, period_start, period_end FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
+              ).bind(userId).first()
+              if (sub) {
+                subTotal = sub.credits_per_month as number || 0
+                const periodStart = sub.period_start as string
+                const periodEnd = sub.period_end as string
+
+                // 如果周期已过，自动续期
+                if (periodEnd && new Date(periodEnd) < new Date()) {
+                  const newStart = periodEnd
+                  const newEnd = new Date(new Date(newStart).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+                  await DB.prepare(
+                    "UPDATE subscriptions SET period_start = ?, period_end = ? WHERE id = ?"
+                  ).bind(newStart, newEnd, sub.id).run()
+                  subUsed = 0
+                } else if (periodStart && periodEnd) {
+                  // 当前周期内的用量
+                  const row = await DB.prepare(
+                    "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
+                  ).bind(userId, periodStart.slice(0, 7)).first()
+                  subUsed = row ? (row.cloud_used as number) : 0
+                }
+              }
             }
           }
         }
@@ -97,15 +115,13 @@ export async function POST(request: NextRequest) {
     } catch { /* ignore */ }
   }
 
-  // 确定消耗类型：先到期先用
+  // 先到期先用
   if (credits > 0 && creditsExpiry) {
     userType = 'credits'
-  } else if (monthlyUsed < monthlyTotal) {
+  } else if (subUsed < subTotal) {
     userType = 'paid'
   } else if (freeUsed < 3) {
     userType = 'free'
-  } else {
-    // 全部用完
   }
 
   // --- 2. 计算用量和额度 ---
@@ -135,8 +151,8 @@ export async function POST(request: NextRequest) {
     maxUsage = credits
     currentUsage = 0
   } else if (userType === 'paid') {
-    currentUsage = monthlyUsed
-    maxUsage = monthlyTotal
+    currentUsage = subUsed
+    maxUsage = subTotal
   } else {
     currentUsage = freeUsed
     maxUsage = 3
@@ -189,18 +205,22 @@ export async function POST(request: NextRequest) {
         "UPDATE users SET cloud_used_lifetime = cloud_used_lifetime + 1, updated_at = datetime('now') WHERE id = ?"
       ).bind(userId).run()
     } else if (userType === 'paid' && DB && DB.prepare && userId) {
-      const month = new Date().toISOString().slice(0, 7)
+      // 按订阅周期记录用量
+      const sub = await DB.prepare(
+        "SELECT period_start FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
+      ).bind(userId).first()
+      const periodKey = (sub?.period_start || new Date().toISOString()).slice(0, 7)
       const existing = await DB.prepare(
         "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
-      ).bind(userId, month).first()
+      ).bind(userId, periodKey).first()
       if (existing) {
         await DB.prepare(
           "UPDATE usage SET cloud_used = cloud_used + 1 WHERE user_id = ? AND month = ?"
-        ).bind(userId, month).run()
+        ).bind(userId, periodKey).run()
       } else {
         await DB.prepare(
           "INSERT INTO usage (user_id, month, cloud_used, plan) VALUES (?, ?, 1, ?)"
-        ).bind(userId, month, plan).run()
+        ).bind(userId, periodKey, plan).run()
       }
     }
 
