@@ -6,7 +6,6 @@ export const runtime = "edge"
 export async function GET(request: NextRequest) {
   try {
     const session = await auth()
-
     if (!session?.user) {
       return NextResponse.json(
         { error: 'unauthorized', message: '请先登录' },
@@ -20,29 +19,37 @@ export async function GET(request: NextRequest) {
     let plan = 'free'
     let used = 0
     let total = 3
+    let credits = 0
 
     if (DB && DB.prepare) {
       const user = await DB.prepare(
-        "SELECT plan, cloud_used_lifetime FROM users WHERE id = ?"
+        "SELECT plan, cloud_used_lifetime, credits FROM users WHERE id = ?"
       ).bind(userId).first()
 
       if (user) {
         plan = user.plan as string
+        credits = user.credits as number || 0
+
         if (plan === 'free') {
           used = user.cloud_used_lifetime as number
           total = 3
+        } else if (credits > 0) {
+          // 有积分，优先显示积分
+          used = 0
+          total = credits
         } else {
+          // 月订阅用户
           const month = new Date().toISOString().slice(0, 7)
           const row = await DB.prepare(
             "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
           ).bind(userId, month).first()
           used = row ? (row.cloud_used as number) : 0
-          total = plan === 'starter' ? 30 : plan === 'pro' ? 100 : 300
+          total = plan === 'starter' ? 25 : plan === 'pro' ? 60 : 300
         }
       }
     }
 
-    return NextResponse.json({ used, total, plan })
+    return NextResponse.json({ used, total, plan, credits })
   } catch (error) {
     console.error('Usage API error:', error)
     return NextResponse.json(

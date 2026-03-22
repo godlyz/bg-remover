@@ -3,12 +3,11 @@ import { NextRequest, NextResponse } from 'next/server'
 export const runtime = "edge"
 
 /** 获取套餐对应的最大月用量 */
-function getMaxUsage(plan: string): number {
+function getMaxUsage(plan: string, credits: number): number {
   switch (plan) {
-    case 'guest': return 0
     case 'free': return 3
-    case 'starter': return 30
-    case 'pro': return 100
+    case 'starter': return 25
+    case 'pro': return 60
     case 'business': return 300
     default: return 0
   }
@@ -48,7 +47,6 @@ async function selectApiKey(KV: any): Promise<string | null> {
     }
   }
 
-  // 记录本次使用
   await KV.put(`apikey:${bestKey}:${month}`, String(minUsed + 1))
   return bestKey
 }
@@ -64,6 +62,7 @@ export async function POST(request: NextRequest) {
   let userId: string | null = null
   let userType = 'guest'
   let plan = 'free'
+  let credits = 0
 
   const authSession = request.headers.get('x-auth-session')
   if (authSession) {
@@ -73,35 +72,46 @@ export async function POST(request: NextRequest) {
         userId = session.user.id
         if (DB && DB.prepare) {
           const user = await DB.prepare(
-            "SELECT plan, cloud_used_lifetime FROM users WHERE id = ?"
+            "SELECT plan, cloud_used_lifetime, credits FROM users WHERE id = ?"
           ).bind(userId).first()
           if (user) {
             plan = user.plan as string
-            userType = plan === 'free' ? 'free' : 'paid'
+            credits = user.credits as number || 0
+            if (plan === 'free') {
+              userType = 'free'
+            } else if (credits > 0) {
+              userType = 'credits'
+            } else {
+              userType = 'paid'
+            }
           }
         }
       }
     } catch { /* ignore */ }
   }
 
-  // --- 2. 计算 fingerprint ---
+  // --- 2. 计算用量 ---
   const fingerprint = await hashString(
     `${request.headers.get('cf-connecting-ip') || 'unknown'}:${request.headers.get('user-agent') || ''}`
   )
 
-  // --- 3. 查询当前用量 ---
   let currentUsage = 0
 
-  if (userType === 'guest' && KV) {
-    const data = await KV.get(`guest:${fingerprint}`)
-    currentUsage = data ? parseInt(data) : 0
+  if (userType === 'guest') {
+    // 未登录不可用
+    return NextResponse.json(
+      { error: 'quota_exceeded', type: 'guest', plan, used: 0, total: 0, message: '注册后可使用云端处理' },
+      { status: 402 }
+    )
+  } else if (userType === 'credits') {
+    // 积分用户：检查积分余额
+    currentUsage = 0 // 积分用 credits 字段
   } else if (userType === 'free' && DB && DB.prepare && userId) {
     const user = await DB.prepare(
       "SELECT cloud_used_lifetime FROM users WHERE id = ?"
     ).bind(userId).first()
     currentUsage = user ? (user.cloud_used_lifetime as number) : 0
-  } else if (userType !== 'guest' && DB && DB.prepare && userId) {
-    // 付费用户：按月统计
+  } else if (userType === 'paid' && DB && DB.prepare && userId) {
     const month = new Date().toISOString().slice(0, 7)
     const row = await DB.prepare(
       "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
@@ -109,10 +119,16 @@ export async function POST(request: NextRequest) {
     currentUsage = row ? (row.cloud_used as number) : 0
   }
 
-  const maxUsage = getMaxUsage(userType)
+  const maxUsage = getMaxUsage(plan, credits)
 
-  // 用量不足
-  if (currentUsage >= maxUsage) {
+  if (userType === 'credits') {
+    if (credits <= 0) {
+      return NextResponse.json(
+        { error: 'quota_exceeded', type: 'credits', plan, used: 0, total: 0, message: '积分已用完，请购买更多积分' },
+        { status: 402 }
+      )
+    }
+  } else if (currentUsage >= maxUsage) {
     return NextResponse.json(
       {
         error: 'quota_exceeded',
@@ -120,17 +136,15 @@ export async function POST(request: NextRequest) {
         plan,
         used: currentUsage,
         total: maxUsage,
-        message: userType === 'guest'
-          ? '注册后可获得 3 次云端免费体验'
-          : userType === 'free'
-          ? '免费额度已用完，升级套餐继续使用'
+        message: userType === 'free'
+          ? '免费试用已用完，购买积分或订阅继续使用'
           : '本月额度已用完',
       },
       { status: 402 }
     )
   }
 
-  // --- 4. API Key 轮换 ---
+  // --- 3. API Key 轮换 ---
   const apiKey = await selectApiKey(KV)
   if (!apiKey) {
     return NextResponse.json(
@@ -139,7 +153,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // --- 5. 调用 remove.bg API ---
+  // --- 4. 调用 remove.bg API ---
   try {
     const formData = await request.formData()
     const imageFile = formData.get('image_file')
@@ -152,13 +166,15 @@ export async function POST(request: NextRequest) {
     }
 
     // 扣减用量
-    if (userType === 'guest' && KV) {
-      await KV.put(`guest:${fingerprint}`, String(currentUsage + 1))
+    if (userType === 'credits' && DB && DB.prepare && userId) {
+      await DB.prepare(
+        "UPDATE users SET credits = credits - 1, updated_at = datetime('now') WHERE id = ?"
+      ).bind(userId).run()
     } else if (userType === 'free' && DB && DB.prepare && userId) {
       await DB.prepare(
         "UPDATE users SET cloud_used_lifetime = cloud_used_lifetime + 1, updated_at = datetime('now') WHERE id = ?"
       ).bind(userId).run()
-    } else if (userType !== 'guest' && DB && DB.prepare && userId) {
+    } else if (userType === 'paid' && DB && DB.prepare && userId) {
       const month = new Date().toISOString().slice(0, 7)
       const existing = await DB.prepare(
         "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
