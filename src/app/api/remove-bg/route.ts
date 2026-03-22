@@ -2,19 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = "edge"
 
-/** D1 REST API 查询 */
-async function dbQuery(sql: string, params: any[] = []): Promise<{results: any[], success: boolean}> {
-  const accountId = '3d3880f37301637156fefbf92e495102'
-  const apiToken = 'cfat_pX978LoBmJpf9Lu48ylbpeY0VIzQ31HRJ4rj2PvA2c5216bf'
-  const dbId = 'a4d77ae3-c6aa-44a3-85ae-dd1ce1c8f0ef'
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${dbId}/query`,
-    { method: 'POST', headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sql, params }) }
-  )
-  if (!res.ok) throw new Error(`D1 error ${res.status}: ${await res.text()}`)
-  const data = await res.json()
-  return data.result?.[0] || { results: [], success: false }
+const getDB = () => process.env.DB as any
+const dbQuery = async (sql: string, params: any[] = []) => {
+  return (await getDB().prepare(sql).bind(...params).all()).results
 }
+const dbFirst = async (sql: string, params: any[] = []) => {
+  return (await getDB().prepare(sql).bind(...params).first())
+}
+const dbRun = async (sql: string, params: any[] = []) => {
+  await getDB().prepare(sql).bind(...params).run()
+}
+
+/** D1 REST API 查询 */
 
 /** 简单 hash */
 async function hashString(str: string): Promise<string> {
