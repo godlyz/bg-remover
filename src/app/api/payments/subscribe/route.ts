@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { planId, planType } = await request.json()
+    const { planId } = await request.json()
     const plan = SUBSCRIPTION_PLANS[planId]
 
     if (!plan) {
@@ -79,10 +79,10 @@ export async function POST(request: NextRequest) {
         application_context: {
           brand_name: 'BGFree',
           user_action: 'SUBSCRIBE_NOW',
-          return_url: `${baseUrl}/api/payments/subscription/success?planType=${planType}`,
+          return_url: `${baseUrl}/api/payments/subscription/success?planId=${planId}`,
           cancel_url: `${baseUrl}/pricing?status=cancelled`,
         },
-        custom_id: `${session.user.id}:${planType}`,
+        custom_id: `${session.user.id}:${planId}`,
       }),
     })
 
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
       const subId = `sub_${crypto.randomUUID().replace(/-/g, '')}`
       await DB.prepare(
         "INSERT INTO subscriptions (id, user_id, paypal_subscription_id, plan_type, status, credits_per_month, start_date) VALUES (?, ?, ?, ?, 'pending', ?, datetime('now'))"
-      ).bind(subId, session.user.id, subData.id, planType, plan.creditsPerMonth).run()
+      ).bind(subId, session.user.id, subData.id, planId, plan.creditsPerMonth).run()
     }
 
     // 找 approve 链接

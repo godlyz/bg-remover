@@ -50,9 +50,13 @@ export async function GET(request: NextRequest) {
     )
 
     if (!actRes.ok) {
-      console.error('Activate subscription failed:', await actRes.text())
-      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
+      const errText = await actRes.text()
+      console.error('Activate subscription failed:', actRes.status, errText)
+      return NextResponse.redirect(new URL(`/payment?status=failed&reason=activate_${actRes.status}`, request.url))
     }
+
+    const actData = await actRes.json()
+    console.log('Subscription activated:', JSON.stringify(actData).slice(0, 200))
 
     // 从 D1 查找 pending 订阅记录获取 userId
     const { DB } = (globalThis as any).cloudflare?.env || {}
