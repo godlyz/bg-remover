@@ -2,6 +2,18 @@
 
 import { useCallback } from 'react';
 
+/** 结构化错误（用于区分 quota_exceeded 和普通错误） */
+export class CloudError extends Error {
+  code: string
+  data: any
+  constructor(code: string, message: string, data?: any) {
+    super(message)
+    this.name = 'CloudError'
+    this.code = code
+    this.data = data
+  }
+}
+
 /** 云端去背景 Hook */
 export function useCloudRemoval() {
   const process = useCallback(
@@ -14,10 +26,16 @@ export function useCloudRemoval() {
       const formData = new FormData();
       formData.append('image_file', file);
 
+      // 从全局变量读取 session
+      const authSession = (window as any).__authSession
+
       const xhr = new XMLHttpRequest();
 
       return new Promise<Blob>((resolve, reject) => {
         xhr.open('POST', '/api/remove-bg');
+        if (authSession) {
+          xhr.setRequestHeader('X-Auth-Session', authSession)
+        }
 
         // 上传进度
         xhr.upload.onprogress = (e) => {
@@ -34,18 +52,32 @@ export function useCloudRemoval() {
             const blob = xhr.response instanceof Blob ? xhr.response : new Blob([xhr.response], { type: 'image/png' });
             resolve(blob);
           } else {
+            // 尝试解析 JSON 错误
             try {
-              const error = JSON.parse(xhr.responseText);
-              reject(new Error(error.message || `云端处理失败 (${xhr.status})`));
+              // blob 响应需要读取文本
+              const reader = new FileReader()
+              reader.onload = () => {
+                try {
+                  const error = JSON.parse(reader.result as string)
+                  reject(new CloudError(
+                    error.error || 'unknown',
+                    error.message || `云端处理失败 (${xhr.status})`,
+                    error
+                  ))
+                } catch {
+                  reject(new CloudError('unknown', `云端处理失败 (${xhr.status})`))
+                }
+              }
+              reader.readAsText(xhr.response)
             } catch {
-              reject(new Error(`云端处理失败 (${xhr.status})`));
+              reject(new CloudError('unknown', `云端处理失败 (${xhr.status})`))
             }
           }
         };
 
-        xhr.onerror = () => reject(new Error('网络错误，请检查网络后重试'));
-        xhr.ontimeout = () => reject(new Error('请求超时，请稍后重试'));
-        xhr.timeout = 60000; // 60 秒超时
+        xhr.onerror = () => reject(new CloudError('network_error', '网络错误，请检查网络后重试'));
+        xhr.ontimeout = () => reject(new CloudError('timeout', '请求超时，请稍后重试'));
+        xhr.timeout = 60000;
         xhr.responseType = 'blob';
         xhr.send(formData);
       });

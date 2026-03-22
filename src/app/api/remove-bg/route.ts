@@ -48,79 +48,16 @@ async function selectApiKey(KV: any): Promise<string | null> {
     }
   }
 
+  // 记录本次使用
   await KV.put(`apikey:${bestKey}:${month}`, String(minUsed + 1))
   return bestKey
-}
-
-/** 查询当前用量 */
-async function getCurrentUsage(
-  userType: string, userId: string | null, plan: string,
-  DB: any, KV: any
-): Promise<number> {
-  if (userType === 'guest') {
-    const ip = 'unknown' // 从 request context 传入
-    const ua = 'unknown'
-    // fingerprint 在调用前计算好，这里简化
-    return 0 // 由调用方处理
-  }
-
-  if (userType === 'free') {
-    if (DB && DB.prepare && userId) {
-      const user = await DB.prepare(
-        "SELECT cloud_used_lifetime FROM users WHERE id = ?"
-      ).bind(userId).first()
-      return user ? (user.cloud_used_lifetime as number) : 0
-    }
-    return 0
-  }
-
-  // 付费用户
-  const month = new Date().toISOString().slice(0, 7)
-  if (DB && DB.prepare && userId) {
-    const row = await DB.prepare(
-      "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
-    ).bind(userId, month).first()
-    return row ? (row.cloud_used as number) : 0
-  }
-
-  return 0
-}
-
-/** 扣减用量 */
-async function incrementUsage(
-  userType: string, userId: string | null, plan: string,
-  DB: any, KV: any, fingerprint: string | null
-): Promise<void> {
-  if (userType === 'guest' && KV && fingerprint) {
-    const data = await KV.get(`guest:${fingerprint}`)
-    const current = data ? parseInt(data) : 0
-    await KV.put(`guest:${fingerprint}`, String(current + 1))
-  } else if (userType === 'free' && DB && DB.prepare && userId) {
-    await DB.prepare(
-      "UPDATE users SET cloud_used_lifetime = cloud_used_lifetime + 1, updated_at = datetime('now') WHERE id = ?"
-    ).bind(userId).run()
-  } else if (DB && DB.prepare && userId) {
-    const month = new Date().toISOString().slice(0, 7)
-    const existing = await DB.prepare(
-      "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
-    ).bind(userId, month).first()
-    if (existing) {
-      await DB.prepare(
-        "UPDATE usage SET cloud_used = cloud_used + 1 WHERE user_id = ? AND month = ?"
-      ).bind(userId, month).run()
-    } else {
-      await DB.prepare(
-        "INSERT INTO usage (user_id, month, cloud_used, plan) VALUES (?, ?, 1, ?)"
-      ).bind(userId, month, plan).run()
-    }
-  }
 }
 
 /**
  * remove.bg API 代理路由（带用量控制 + API Key 轮换）
  */
 export async function POST(request: NextRequest) {
-  const { env } = (globalThis as any).cloudflare?.env || {}
+  const env = (globalThis as any).cloudflare?.env || {}
   const { DB, KV } = env || {}
 
   // --- 1. 身份识别 ---
@@ -147,15 +84,32 @@ export async function POST(request: NextRequest) {
     } catch { /* ignore */ }
   }
 
-  // --- 2. 计算用量 ---
-  const fingerprint = userType === 'guest'
-    ? await hashString(
-        `${request.headers.get('cf-connecting-ip') || 'unknown'}:${request.headers.get('user-agent') || ''}`
-      )
-    : null
+  // --- 2. 计算 fingerprint ---
+  const fingerprint = await hashString(
+    `${request.headers.get('cf-connecting-ip') || 'unknown'}:${request.headers.get('user-agent') || ''}`
+  )
+
+  // --- 3. 查询当前用量 ---
+  let currentUsage = 0
+
+  if (userType === 'guest' && KV) {
+    const data = await KV.get(`guest:${fingerprint}`)
+    currentUsage = data ? parseInt(data) : 0
+  } else if (userType === 'free' && DB && DB.prepare && userId) {
+    const user = await DB.prepare(
+      "SELECT cloud_used_lifetime FROM users WHERE id = ?"
+    ).bind(userId).first()
+    currentUsage = user ? (user.cloud_used_lifetime as number) : 0
+  } else if (userType !== 'guest' && DB && DB.prepare && userId) {
+    // 付费用户：按月统计
+    const month = new Date().toISOString().slice(0, 7)
+    const row = await DB.prepare(
+      "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
+    ).bind(userId, month).first()
+    currentUsage = row ? (row.cloud_used as number) : 0
+  }
 
   const maxUsage = getMaxUsage(userType)
-  const currentUsage = await getCurrentUsage(userType, userId, plan, DB, KV)
 
   // 用量不足
   if (currentUsage >= maxUsage) {
@@ -176,7 +130,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // --- 3. API Key 轮换 ---
+  // --- 4. API Key 轮换 ---
   const apiKey = await selectApiKey(KV)
   if (!apiKey) {
     return NextResponse.json(
@@ -185,7 +139,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // --- 4. 调用 remove.bg API ---
+  // --- 5. 调用 remove.bg API ---
   try {
     const formData = await request.formData()
     const imageFile = formData.get('image_file')
@@ -198,7 +152,27 @@ export async function POST(request: NextRequest) {
     }
 
     // 扣减用量
-    await incrementUsage(userType, userId, plan, DB, KV, fingerprint)
+    if (userType === 'guest' && KV) {
+      await KV.put(`guest:${fingerprint}`, String(currentUsage + 1))
+    } else if (userType === 'free' && DB && DB.prepare && userId) {
+      await DB.prepare(
+        "UPDATE users SET cloud_used_lifetime = cloud_used_lifetime + 1, updated_at = datetime('now') WHERE id = ?"
+      ).bind(userId).run()
+    } else if (userType !== 'guest' && DB && DB.prepare && userId) {
+      const month = new Date().toISOString().slice(0, 7)
+      const existing = await DB.prepare(
+        "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
+      ).bind(userId, month).first()
+      if (existing) {
+        await DB.prepare(
+          "UPDATE usage SET cloud_used = cloud_used + 1 WHERE user_id = ? AND month = ?"
+        ).bind(userId, month).run()
+      } else {
+        await DB.prepare(
+          "INSERT INTO usage (user_id, month, cloud_used, plan) VALUES (?, ?, 1, ?)"
+        ).bind(userId, month, plan).run()
+      }
+    }
 
     // 构建 API 请求
     const apiFormData = new FormData()

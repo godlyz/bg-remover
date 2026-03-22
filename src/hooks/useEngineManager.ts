@@ -3,7 +3,7 @@
 import { useCallback } from 'react';
 import { EngineType, ProcessingState } from '@/types';
 import { useLocalRemoval } from './useLocalRemoval';
-import { useCloudRemoval } from './useCloudRemoval';
+import { useCloudRemoval, CloudError } from './useCloudRemoval';
 
 /** 进度回调类型 */
 type ProgressCallback = (state: Partial<ProcessingState>) => void;
@@ -21,7 +21,6 @@ export function useEngineManager() {
     ): Promise<{ blob: Blob; engineUsed: EngineType; fallbackUsed: boolean }> => {
       try {
         if (engine === 'cloud') {
-          // ===== 云端模式 =====
           const blob = await cloudRemoval.process(file, (progress, text) => {
             if (progress >= 100) {
               onProgress({ status: 'processing', progress: 90, progressText: '云端 AI 正在处理...' });
@@ -31,7 +30,6 @@ export function useEngineManager() {
           });
           return { blob, engineUsed: 'cloud', fallbackUsed: false };
         } else {
-          // ===== 本地模式 =====
           const blob = await localRemoval.process(file, (progress, text) => {
             if (progress > 0 && progress < 100) {
               onProgress({ status: 'loading-model', progress: Math.min(progress, 90), progressText: `正在加载 AI 模型... ${text}` });
@@ -42,7 +40,15 @@ export function useEngineManager() {
           return { blob, engineUsed: 'local', fallbackUsed: false };
         }
       } catch (error) {
-        // 云端模式失败时自动降级到本地模式
+        // quota_exceeded 和 api_quota_exceeded 不降级，直接抛出让页面弹窗
+        if (error instanceof CloudError && (
+          error.code === 'quota_exceeded' ||
+          error.code === 'api_quota_exceeded'
+        )) {
+          throw error
+        }
+
+        // 其他云端错误降级到本地
         if (engine === 'cloud') {
           console.warn('Cloud removal failed, falling back to local:', error);
           onProgress({

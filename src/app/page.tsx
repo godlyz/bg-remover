@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import { SessionProvider } from 'next-auth/react'
 import type { EngineType, ProcessingState } from '@/types'
+import { CloudError } from '@/hooks/useCloudRemoval'
 import { ENGINE_CONFIGS } from '@/types'
 import Header from '@/components/Header'
 import Footer from '@/components/Footer'
@@ -78,6 +79,19 @@ function AppContent() {
       setProcessingState({ status: 'done', engineUsed: result.engineUsed, fallbackUsed: result.fallbackUsed })
       if (result.fallbackUsed) showToast('云端处理失败，已自动切换到免费模式')
     } catch (error) {
+      // 用量不足 → 弹窗
+      if (error instanceof CloudError && error.code === 'quota_exceeded' && error.data) {
+        setProcessingState({ status: 'idle' })
+        setQuotaModal({
+          isOpen: true,
+          type: error.data.type || 'guest',
+          plan: error.data.plan,
+          used: error.data.used,
+          total: error.data.total,
+        })
+        return
+      }
+      // 其他错误
       setProcessingState({
         status: 'error',
         errorMessage: error instanceof Error ? error.message : '处理失败，请重试',
