@@ -92,11 +92,7 @@ export function PricingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const { data: session, status } = useSession()
 
-  if (status === 'loading') {
-    return <div className="min-h-screen flex items-center justify-center text-gray-400">加载中...</div>
-  }
-
-  // 用户唯一标识：优先用 session.user.id（NextAuth JWT callback 设置的 token.sub）
+  // 不阻塞渲染，让页面立即显示
   const userId = session?.user?.id || ''
 
   const handlePurchase = async (planId: string, planType: 'credit' | 'subscription') => {
