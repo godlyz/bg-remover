@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = "edge"
 
+/** D1 REST API 查询 */
+async function dbQuery(sql: string, params: any[] = []): Promise<{results: any[], success: boolean}> {
+  const accountId = '3d3880f37301637156fefbf92e495102'
+  const apiToken = 'cfat_pX978LoBmJpf9Lu48ylbpeY0VIzQ31HRJ4rj2PvA2c5216bf'
+  const dbId = 'a4d77ae3-c6aa-44a3-85ae-dd1ce1c8f0ef'
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${dbId}/query`,
+    { method: 'POST', headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sql, params }) }
+  )
+  if (!res.ok) throw new Error(`D1 error ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  return data.result?.[0] || { results: [], success: false }
+}
+
 /** 简单 hash */
 async function hashString(str: string): Promise<string> {
   const encoder = new TextEncoder()
@@ -12,40 +26,18 @@ async function hashString(str: string): Promise<string> {
     .join('')
 }
 
-/** API Key 轮换：选本月用量最少的 */
-async function selectApiKey(KV: any): Promise<string | null> {
+/** API Key 轮换 */
+async function selectApiKey(): Promise<string | null> {
   const keys = process.env.RB_API_KEYS || process.env.REMOVEBG_API_KEY || ''
   const keyList = keys.split(',').map(k => k.trim()).filter(Boolean)
-
   if (keyList.length === 0) return null
-  if (keyList.length === 1) return keyList[0]
-
-  const month = new Date().toISOString().slice(0, 7)
-
-  if (!KV) return keyList[Math.floor(Math.random() * keyList.length)]
-
-  let bestKey = keyList[0]
-  let minUsed = Infinity
-
-  for (const key of keyList) {
-    const data = await KV.get(`apikey:${key}:${month}`)
-    const used = data ? parseInt(data) : 0
-    if (used < minUsed) {
-      minUsed = used
-      bestKey = key
-    }
-  }
-
-  await KV.put(`apikey:${bestKey}:${month}`, String(minUsed + 1))
-  return bestKey
+  return keyList[Math.floor(Math.random() * keyList.length)]
 }
 
 /**
- * remove.bg API 代理路由（带用量控制 + API Key 轮换）
+ * remove.bg API 代理路由（带用量控制）
  */
 export async function POST(request: NextRequest) {
-  const env = { DB: db, KV: null }
-
   // --- 1. 身份识别 ---
   let userId: string | null = null
   let userType = 'guest'
@@ -62,50 +54,54 @@ export async function POST(request: NextRequest) {
       const session = JSON.parse(authSession)
       if (session?.user?.id) {
         userId = session.user.id
-        if (DB && DB.prepare) {
-          const user = await DB.prepare(
-            "SELECT plan, cloud_used_lifetime, credits, credits_expiry FROM users WHERE id = ?"
-          ).bind(userId).first()
-          if (user) {
-            plan = user.plan as string
-            credits = user.credits as number || 0
-            creditsExpiry = user.credits_expiry as string | null
-            freeUsed = user.cloud_used_lifetime as number || 0
+        const users = await dbQuery(
+          "SELECT plan, cloud_used_lifetime, credits, credits_expiry FROM users WHERE id = ?",
+          [userId]
+        )
+        const user = users.results?.[0]
+        if (user) {
+          plan = user.plan || 'free'
+          credits = user.credits || 0
+          creditsExpiry = user.credits_expiry || null
+          freeUsed = user.cloud_used_lifetime || 0
 
-            // 清理过期积分
-            if (credits > 0 && creditsExpiry && new Date(creditsExpiry) < new Date()) {
-              credits = 0
-              creditsExpiry = null
-              DB.prepare(
-                "UPDATE users SET credits = 0, credits_expiry = NULL, updated_at = datetime('now') WHERE id = ?"
-              ).bind(userId).run()
-            }
+          // 清理过期积分
+          if (credits > 0 && creditsExpiry && new Date(creditsExpiry) < new Date()) {
+            credits = 0
+            creditsExpiry = null
+            await dbQuery(
+              "UPDATE users SET credits = 0, credits_expiry = NULL, updated_at = datetime('now') WHERE id = ?",
+              [userId]
+            )
+          }
 
-            // 月订阅用量（按订阅周期 30 天计算）
-            if (plan !== 'free') {
-              const sub = await DB.prepare(
-                "SELECT id, credits_per_month, period_start, period_end FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
-              ).bind(userId).first()
-              if (sub) {
-                subTotal = sub.credits_per_month as number || 0
-                const periodStart = sub.period_start as string
-                const periodEnd = sub.period_end as string
+          // 月订阅用量
+          if (plan !== 'free') {
+            const subs = await dbQuery(
+              "SELECT id, credits_per_month, period_start, period_end FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
+              [userId]
+            )
+            const sub = subs.results?.[0]
+            if (sub) {
+              subTotal = sub.credits_per_month || 0
+              const periodStart = sub.period_start
+              const periodEnd = sub.period_end
 
-                // 如果周期已过，自动续期
-                if (periodEnd && new Date(periodEnd) < new Date()) {
-                  const newStart = periodEnd
-                  const newEnd = new Date(new Date(newStart).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
-                  await DB.prepare(
-                    "UPDATE subscriptions SET period_start = ?, period_end = ? WHERE id = ?"
-                  ).bind(newStart, newEnd, sub.id).run()
-                  subUsed = 0
-                } else if (periodStart && periodEnd) {
-                  // 当前周期内的用量
-                  const row = await DB.prepare(
-                    "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
-                  ).bind(userId, periodStart.slice(0, 7)).first()
-                  subUsed = row ? (row.cloud_used as number) : 0
-                }
+              // 自动续期
+              if (periodEnd && new Date(periodEnd) < new Date()) {
+                const newStart = periodEnd
+                const newEnd = new Date(new Date(newStart).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+                await dbQuery(
+                  "UPDATE subscriptions SET period_start = ?, period_end = ? WHERE id = ?",
+                  [newStart, newEnd, sub.id]
+                )
+                subUsed = 0
+              } else if (periodStart && periodEnd) {
+                const usageRows = await dbQuery(
+                  "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?",
+                  [userId, periodStart.slice(0, 7)]
+                )
+                subUsed = usageRows.results?.[0]?.cloud_used || 0
               }
             }
           }
@@ -124,10 +120,6 @@ export async function POST(request: NextRequest) {
   }
 
   // --- 2. 计算用量和额度 ---
-  const fingerprint = await hashString(
-    `${request.headers.get('cf-connecting-ip') || 'unknown'}:${request.headers.get('user-agent') || ''}`
-  )
-
   if (userType === 'guest') {
     return NextResponse.json(
       { error: 'quota_exceeded', type: 'guest', plan, used: 0, total: 0, message: '注册后可使用云端处理' },
@@ -136,7 +128,6 @@ export async function POST(request: NextRequest) {
   }
 
   if (userType === '') {
-    // 全部用完
     return NextResponse.json(
       { error: 'quota_exceeded', type: 'exhausted', plan, used: 0, total: 0, message: '所有额度已用完，请购买积分或订阅' },
       { status: 402 }
@@ -148,7 +139,6 @@ export async function POST(request: NextRequest) {
 
   if (userType === 'credits') {
     maxUsage = credits
-    currentUsage = 0
   } else if (userType === 'paid') {
     currentUsage = subUsed
     maxUsage = subTotal
@@ -173,8 +163,8 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // --- 3. API Key 轮换 ---
-  const apiKey = await selectApiKey(KV)
+  // --- 3. API Key ---
+  const apiKey = await selectApiKey()
   if (!apiKey) {
     return NextResponse.json(
       { error: 'api_key_missing', message: 'API Key 未配置' },
@@ -195,31 +185,37 @@ export async function POST(request: NextRequest) {
     }
 
     // 扣减用量
-    if (userType === 'credits' && DB && DB.prepare && userId) {
-      await DB.prepare(
-        "UPDATE users SET credits = credits - 1, updated_at = datetime('now') WHERE id = ?"
-      ).bind(userId).run()
-    } else if (userType === 'free' && DB && DB.prepare && userId) {
-      await DB.prepare(
-        "UPDATE users SET cloud_used_lifetime = cloud_used_lifetime + 1, updated_at = datetime('now') WHERE id = ?"
-      ).bind(userId).run()
-    } else if (userType === 'paid' && DB && DB.prepare && userId) {
-      // 按订阅周期记录用量
-      const sub = await DB.prepare(
-        "SELECT period_start FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
-      ).bind(userId).first()
+    if (userType === 'credits' && userId) {
+      await dbQuery(
+        "UPDATE users SET credits = credits - 1, updated_at = datetime('now') WHERE id = ?",
+        [userId]
+      )
+    } else if (userType === 'free' && userId) {
+      await dbQuery(
+        "UPDATE users SET cloud_used_lifetime = cloud_used_lifetime + 1, updated_at = datetime('now') WHERE id = ?",
+        [userId]
+      )
+    } else if (userType === 'paid' && userId) {
+      const subs = await dbQuery(
+        "SELECT period_start FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
+        [userId]
+      )
+      const sub = subs.results?.[0]
       const periodKey = (sub?.period_start || new Date().toISOString()).slice(0, 7)
-      const existing = await DB.prepare(
-        "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
-      ).bind(userId, periodKey).first()
-      if (existing) {
-        await DB.prepare(
-          "UPDATE usage SET cloud_used = cloud_used + 1 WHERE user_id = ? AND month = ?"
-        ).bind(userId, periodKey).run()
+      const existing = await dbQuery(
+        "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?",
+        [userId, periodKey]
+      )
+      if (existing.results?.[0]) {
+        await dbQuery(
+          "UPDATE usage SET cloud_used = cloud_used + 1 WHERE user_id = ? AND month = ?",
+          [userId, periodKey]
+        )
       } else {
-        await DB.prepare(
-          "INSERT INTO usage (user_id, month, cloud_used, plan) VALUES (?, ?, 1, ?)"
-        ).bind(userId, periodKey, plan).run()
+        await dbQuery(
+          "INSERT INTO usage (user_id, month, cloud_used, plan) VALUES (?, ?, 1, ?)",
+          [userId, periodKey, plan]
+        )
       }
     }
 
