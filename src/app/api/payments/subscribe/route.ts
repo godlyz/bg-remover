@@ -3,17 +3,9 @@ import { auth } from '@/app/api/auth/[...nextauth]/route'
 
 export const runtime = "edge"
 
-const SUBSCRIPTION_PLANS: Record<string, { planId: string; name: string; creditsPerMonth: number }> = {
-  monthly_basic: {
-    planId: process.env.PAYPAL_PLAN_BASIC || 'P-3R030751SW877690BNG73LKA',
-    name: '基础版',
-    creditsPerMonth: 25,
-  },
-  monthly_pro: {
-    planId: process.env.PAYPAL_PLAN_PRO || 'P-37T01020MF214480SNG73LNA',
-    name: '进阶版',
-    creditsPerMonth: 60,
-  },
+const SUBSCRIPTION_PLANS: Record<string, { name: string; creditsPerMonth: number; amount: number }> = {
+  monthly_basic: { name: '基础版', creditsPerMonth: 25, amount: 9.99 },
+  monthly_pro: { name: '进阶版', creditsPerMonth: 60, amount: 19.99 },
 }
 
 export async function POST(request: NextRequest) {
@@ -64,51 +56,56 @@ export async function POST(request: NextRequest) {
     }
 
     const { access_token } = await tokenRes.json()
-
-    // 创建 PayPal Subscription
     const baseUrl = process.env.NEXTAUTH_URL || 'https://www.bg-remover.site'
 
-    const subRes = await fetch('https://api-m.sandbox.paypal.com/v1/billing/subscriptions', {
+    // 用一次性支付方式创建月订阅订单（沙箱兼容）
+    const orderRes = await fetch('https://api-m.sandbox.paypal.com/v2/checkout/orders', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${access_token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        plan_id: plan.planId,
+        intent: 'CAPTURE',
+        purchase_units: [{
+          description: `BGFree ${plan.name} - 月订阅（首月）`,
+          amount: {
+            currency_code: 'USD',
+            value: plan.amount.toFixed(2),
+          },
+          custom_id: `${session.user.id}:sub:${planId}`,
+        }],
         application_context: {
           brand_name: 'BGFree',
-          user_action: 'SUBSCRIBE_NOW',
           return_url: `${baseUrl}/api/payments/subscription/success?planId=${planId}`,
-          cancel_url: `${baseUrl}/pricing?status=cancelled`,
+          cancel_url: `${baseUrl}/payment?status=cancelled`,
+          user_action: 'PAY_NOW',
         },
-        custom_id: `${session.user.id}:${planId}`,
       }),
     })
 
-    if (!subRes.ok) {
-      const errText = await subRes.text()
+    if (!orderRes.ok) {
+      const errText = await orderRes.text()
+      console.error('PayPal order error:', errText)
       return NextResponse.json(
-        { error: 'paypal_error', message: '创建订阅失败', details: errText.slice(0, 300) },
+        { error: 'paypal_error', message: '创建订单失败', details: errText.slice(0, 300) },
         { status: 502 }
       )
     }
 
-    const subData = await subRes.json()
+    const orderData = await orderRes.json()
 
-    // 保存到 D1
+    // 保存 pending 订单到 D1
     const { DB } = (globalThis as any).cloudflare?.env || {}
     if (DB && DB.prepare) {
-      const subId = `sub_${crypto.randomUUID().replace(/-/g, '')}`
       await DB.prepare(
-        "INSERT INTO subscriptions (id, user_id, paypal_subscription_id, plan_type, status, credits_per_month, start_date) VALUES (?, ?, ?, ?, 'pending', ?, datetime('now'))"
-      ).bind(subId, session.user.id, subData.id, planId, plan.creditsPerMonth).run()
+        "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, 'pending')"
+      ).bind(orderData.id, session.user.id, orderData.id, planId, plan.amount).run()
     }
 
-    // 找 approve 链接
-    const approveLink = subData.links?.find((l: any) => l.rel === 'approve')?.href
+    const approvalUrl = orderData.links?.find((l: any) => l.rel === 'approve')?.href
 
-    if (!approveLink) {
+    if (!approvalUrl) {
       return NextResponse.json(
         { error: 'paypal_error', message: '支付链接生成失败' },
         { status: 502 }
@@ -116,8 +113,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      subscriptionId: subData.id,
-      approvalUrl: approveLink,
+      orderId: orderData.id,
+      approvalUrl: approvalUrl,
     })
   } catch (error) {
     console.error('Create subscription error:', error)

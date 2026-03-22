@@ -5,11 +5,10 @@ export const runtime = "edge"
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const subscriptionId = searchParams.get('subscription_id')
-    const ba_token = searchParams.get('ba_token')
-    const planType = searchParams.get('planType') || ''
+    const token = searchParams.get('token')
+    const planId = searchParams.get('planId') || ''
 
-    if (!subscriptionId || !ba_token) {
+    if (!token) {
       return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
@@ -36,63 +35,51 @@ export async function GET(request: NextRequest) {
 
     const { access_token } = await tokenRes.json()
 
-    // 先查 D1 找到对应订阅的 user_id
-    const { DB } = (globalThis as any).cloudflare?.env || {}
+    // Capture 一次性支付
+    const captureRes = await fetch(`https://api-m.sandbox.paypal.com/v2/checkout/orders/${token}/capture`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${access_token}`,
+        'Content-Type': 'application/json',
+      },
+    })
 
-    if (!DB || !DB.prepare) {
+    const capture = await captureRes.json()
+
+    if (!captureRes.ok || capture.status !== 'COMPLETED') {
+      console.error('Capture failed:', JSON.stringify(capture).slice(0, 300))
       return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
-    const sub = await DB.prepare(
-      "SELECT id, user_id, plan_type, credits_per_month FROM subscriptions WHERE paypal_subscription_id = ? AND status = 'pending'"
-    ).bind(subscriptionId).first()
-
-    if (!sub) {
-      console.error('Subscription not found in DB:', subscriptionId)
-      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
-    }
-
-    // Activate subscription
-    const actRes = await fetch(
-      `https://api-m.sandbox.paypal.com/v1/billing/subscriptions/${subscriptionId}/activate`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${access_token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ reason_code: 'CUSTOMER_APPROVAL' }),
-      }
-    )
-
-    if (!actRes.ok) {
-      const errText = await actRes.text()
-      console.error('Activate failed:', actRes.status, errText)
-      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
-    }
+    const paypalOrderId = capture.id
+    const customId = capture.purchase_units?.[0]?.custom_id || ''
+    const amount = parseFloat(capture.purchase_units?.[0]?.amount?.value || '0')
+    const [userId, pType, actualPlanId] = customId.split(':')
 
     // 更新 D1
-    const userId = sub.user_id as string
-    const planId = sub.plan_type as string
+    const { DB } = (globalThis as any).cloudflare?.env || {}
 
-    // 更新订阅状态和周期
-    const now = new Date()
-    const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
-    await DB.prepare(
-      "UPDATE subscriptions SET status = 'active', start_date = ?, period_start = ?, period_end = ? WHERE id = ?"
-    ).bind(now.toISOString(), now.toISOString(), periodEnd, sub.id).run()
+    if (DB && DB.prepare && userId) {
+      // 更新支付记录状态
+      await DB.prepare(
+        "UPDATE payments SET status = 'completed', completed_at = datetime('now'), amount = ? WHERE paypal_order_id = ?"
+      ).bind(amount, paypalOrderId).run()
 
-    // 更新用户套餐
-    const planValue = planId === 'monthly_pro' ? 'pro' : 'starter'
-    await DB.prepare(
-      "UPDATE users SET plan = ?, updated_at = datetime('now') WHERE id = ?"
-    ).bind(planValue, userId).run()
+      const planValue = actualPlanId === 'monthly_pro' ? 'pro' : 'starter'
 
-    // 保存支付记录
-    const amount = planId === 'monthly_pro' ? 19.99 : 9.99
-    await DB.prepare(
-      "INSERT INTO payments (id, user_id, paypal_subscription_id, plan_type, amount, status, completed_at) VALUES (?, ?, ?, ?, 'completed', datetime('now'))"
-    ).bind(`pay_${crypto.randomUUID().replace(/-/g, '')}`, userId, subscriptionId, planId, amount).run()
+      // 更新用户套餐
+      await DB.prepare(
+        "UPDATE users SET plan = ?, updated_at = datetime('now') WHERE id = ?"
+      ).bind(planValue, userId).run()
+
+      // 创建订阅记录（本地管理周期）
+      const subId = `sub_${crypto.randomUUID().replace(/-/g, '')}`
+      const now = new Date()
+      const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      await DB.prepare(
+        "INSERT OR REPLACE INTO subscriptions (id, user_id, plan_type, status, credits_per_month, period_start, period_end, start_date) VALUES (?, ?, ?, 'active', ?, ?, ?, datetime('now'))"
+      ).bind(subId, userId, actualPlanId, planValue === 'pro' ? 60 : 25, now.toISOString(), periodEnd).run()
+    }
 
     return NextResponse.redirect(new URL('/payment?status=success&type=subscription', request.url))
   } catch (error) {
