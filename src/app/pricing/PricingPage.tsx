@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from 'react'
+import { useSession, signIn } from 'next-auth/react'
 import Link from 'next/link'
 
 /** 套餐配置 */
@@ -63,7 +64,7 @@ const FAQ = [
   },
   {
     q: '免费额度用完了怎么办？',
-    a: '可以购买积分包或订阅套餐。积分包永不过期，每月自动续费可随时取消。',
+    a: '可以购买积分包或订阅套餐。积分包永不过期，月订阅每月自动续费可随时取消。',
   },
   {
     q: '积分包和月订阅怎么选？',
@@ -87,12 +88,20 @@ const FAQ = [
   },
 ]
 
-export function PricingPage({ userEmail }: { userEmail?: string }) {
+export function PricingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const { data: session, status } = useSession()
+
+  if (status === 'loading') {
+    return <div className="min-h-screen flex items-center justify-center text-gray-400">加载中...</div>
+  }
+
+  // 用户唯一标识：优先用 session.user.id（NextAuth JWT callback 设置的 token.sub）
+  const userId = session?.user?.id || ''
 
   const handlePurchase = async (planId: string, planType: 'credit' | 'subscription') => {
-    if (!userEmail) {
-      window.location.href = `/api/auth/signin?callbackUrl=${encodeURIComponent('/pricing')}`
+    if (!userId) {
+      signIn('google', { callbackUrl: '/pricing' })
       return
     }
 
@@ -107,14 +116,14 @@ export function PricingPage({ userEmail }: { userEmail?: string }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': userEmail,
+          'x-user-id': userId,
         },
         body: JSON.stringify({ planId, planType }),
       })
       const data = await res.json()
 
       if (data.error === 'unauthorized') {
-        window.location.href = `/api/auth/signin?callbackUrl=${encodeURIComponent('/pricing')}`
+        signIn('google', { callbackUrl: '/pricing' })
         return
       }
 
@@ -153,6 +162,9 @@ export function PricingPage({ userEmail }: { userEmail?: string }) {
         <div className="mb-12 text-center">
           <h1 className="mb-3 text-3xl font-bold text-gray-900">选择适合你的方案</h1>
           <p className="text-gray-500">本地去背景永久免费，云端高质量处理按需购买</p>
+          {session && (
+            <p className="mt-2 text-sm text-green-600">✅ 已登录：{session.user?.email}</p>
+          )}
         </div>
 
         <div className="mb-10 rounded-2xl border border-green-100 bg-green-50 p-4 text-center">
