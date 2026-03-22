@@ -93,6 +93,8 @@ export default function PricingPage() {
 
   const handlePurchase = async (planId: string, planType: 'credit' | 'subscription') => {
     try {
+      alert('正在创建订单...')
+
       const endpoint = planType === 'subscription'
         ? '/api/payments/subscribe'
         : '/api/payments/create-order'
@@ -114,7 +116,10 @@ export default function PricingPage() {
         if (data.approvalUrl) {
           window.location.href = data.approvalUrl
         } else {
-          window.location.href = `/payment?status=failed&msg=${encodeURIComponent(data.details || data.message || '操作失败')}`
+          // 显示具体错误信息方便调试
+          const failUrl = `/payment?status=failed&msg=${encodeURIComponent(data.details || data.message || data.redirect || '操作失败')}`
+          console.error('Purchase failed:', JSON.stringify(data))
+          window.location.href = failUrl
         }
         return
       }

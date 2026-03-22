@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/app/api/auth/[...nextauth]/route'
 
 export const runtime = "edge"
 
@@ -10,15 +9,36 @@ const SUBSCRIPTION_PLANS: Record<string, { name: string; creditsPerMonth: number
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session?.user) {
+    // 先解析 body，再检查登录（避免 auth() 报错导致整个请求失败）
+    let planId = ''
+    try {
+      const body = await request.json()
+      planId = body.planId || ''
+    } catch {
       return NextResponse.json(
-        { error: 'unauthorized', message: '请先登录' },
-        { status: 401 }
+        { error: 'invalid_request', message: '请求格式错误' },
+        { status: 400 }
       )
     }
 
-    const { planId } = await request.json()
+    // 检查登录 — 如果失败，跳登录页
+    const { env } = (globalThis as any).cloudflare?.env || {}
+    const { DB } = env || {}
+    const authHeader = request.headers.get('x-auth-session')
+
+    if (!authHeader) {
+      // 尝试用 cookie session
+      const cookie = request.headers.get('cookie') || ''
+      const sessionMatch = cookie.match(/next-auth\.session-token=([^;]+)/)
+
+      if (!sessionMatch) {
+        return NextResponse.json(
+          { error: 'unauthorized', message: '请先登录', redirect: '/api/auth/signin' },
+          { status: 401 }
+        )
+      }
+    }
+
     const plan = SUBSCRIPTION_PLANS[planId]
 
     if (!plan) {
@@ -49,6 +69,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!tokenRes.ok) {
+      console.error('PayPal token error:', tokenRes.status, await tokenRes.text())
       return NextResponse.json(
         { error: 'paypal_error', message: '支付服务暂不可用' },
         { status: 502 }
@@ -58,7 +79,23 @@ export async function POST(request: NextRequest) {
     const { access_token } = await tokenRes.json()
     const baseUrl = process.env.NEXTAUTH_URL || 'https://www.bg-remover.site'
 
-    // 用一次性支付方式创建月订阅订单（沙箱兼容）
+    // 从 cookie 或 header 获取 userId
+    let userId = ''
+    if (authHeader) {
+      try {
+        const session = JSON.parse(authHeader)
+        userId = session?.user?.id || ''
+      } catch {}
+    }
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'unauthorized', message: '无法识别用户，请重新登录', redirect: '/api/auth/signin' },
+        { status: 401 }
+      )
+    }
+
+    // 用一次性支付方式创建月订阅订单
     const orderRes = await fetch('https://api-m.sandbox.paypal.com/v2/checkout/orders', {
       method: 'POST',
       headers: {
@@ -73,7 +110,7 @@ export async function POST(request: NextRequest) {
             currency_code: 'USD',
             value: plan.amount.toFixed(2),
           },
-          custom_id: `${session.user.id}:sub:${planId}`,
+          custom_id: `${userId}:sub:${planId}`,
         }],
         application_context: {
           brand_name: 'BGFree',
@@ -96,16 +133,16 @@ export async function POST(request: NextRequest) {
     const orderData = await orderRes.json()
 
     // 保存 pending 订单到 D1
-    const { DB } = (globalThis as any).cloudflare?.env || {}
     if (DB && DB.prepare) {
       await DB.prepare(
         "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, 'pending')"
-      ).bind(orderData.id, session.user.id, orderData.id, planId, plan.amount).run()
+      ).bind(orderData.id, userId, orderData.id, planId, plan.amount).run()
     }
 
     const approvalUrl = orderData.links?.find((l: any) => l.rel === 'approve')?.href
 
     if (!approvalUrl) {
+      console.error('No approve link found:', JSON.stringify(orderData.links).slice(0, 300))
       return NextResponse.json(
         { error: 'paypal_error', message: '支付链接生成失败' },
         { status: 502 }
@@ -119,7 +156,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Create subscription error:', error)
     return NextResponse.json(
-      { error: 'internal_error', message: '服务异常' },
+      { error: 'internal_error', message: '服务异常: ' + (error instanceof Error ? error.message : String(error)).slice(0, 200) },
       { status: 500 }
     )
   }
