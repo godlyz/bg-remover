@@ -1,20 +1,29 @@
 /**
- * Cloudflare D1 HTTP API 客户端
+ * Cloudflare D1 HTTP API 客户体
  * 
  * 通过 Cloudflare REST API 操作 D1 数据库
+ * 环境变量和硬编码值都尝试
  */
 
-const ACCOUNT_ID = '3d3880f37301637156fefbf92e495102'
-const DB_ID = 'a4d77ae3-c6aa-44a3-85ae-dd1ce1c8f0ef'
-const API_TOKEN = 'cfat_WH7R0GNa6c8vNMUiG1GB1pDUIRNvCBmZpV1ZLcJF0796ffee'
+const FALLBACK_ACCOUNT = '3d3880f37301637156fefbf92e495102'
+const FALLBACK_TOKEN = 'cfat_WH7R0GNa6c8vNMUiG1GB1pDUIRNvCBmZpV1ZLcJF0796ffee'
+const FALLBACK_DB_ID = 'a4d77ae3-c6aa-44a3-85ae-dd1ce1c8f0ef'
+
+function getEnv(key: string, fallback: string): string {
+  return process.env[key] || fallback
+}
 
 async function d1Query(sql: string, params: any[] = []): Promise<any> {
+  const accountId = getEnv('CLOUDFLARE_ACCOUNT_ID', FALLBACK_ACCOUNT)
+  const token = getEnv('CLOUDFLARE_API_TOKEN', FALLBACK_TOKEN)
+  const dbId = getEnv('D1_DATABASE_ID', FALLBACK_DB_ID)
+
   const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${DB_ID}/query`,
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${dbId}/query`,
     {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${API_TOKEN}`,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ sql, params }),
