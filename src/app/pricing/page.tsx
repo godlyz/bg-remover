@@ -131,6 +131,9 @@ export default function PricingPage() {
               BG<span className="text-blue-600">Free</span>
             </span>
           </Link>
+          <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">
+            ← 返回首页
+          </Link>
         </div>
       </div>
 

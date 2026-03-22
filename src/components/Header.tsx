@@ -42,6 +42,11 @@ export default function Header() {
 
         {/* 右侧 */}
         <div className="flex items-center gap-3">
+          {/* 定价链接 */}
+          <a href="/pricing" className="text-sm text-gray-500 hover:text-gray-700 transition-colors hidden sm:block">
+            定价
+          </a>
+
           {status === "loading" ? (
             <div className="h-8 w-20 animate-pulse rounded-lg bg-gray-100" />
           ) : session?.user ? (
