@@ -10,9 +10,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     }),
   ],
-  pages: {
-    // 不自定义 signIn 页面，使用 NextAuth 内置登录页
-  },
   callbacks: {
     async session({ session, token }) {
       if (token.sub) {
@@ -25,6 +22,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.sub = account.providerAccountId
       }
       return token
+    },
+    async signIn({ user, account }) {
+      // 新用户首次登录，写入 D1 数据库
+      if (account && user) {
+        try {
+          const { DB } = (globalThis as any).cloudflare?.env || {}
+          if (DB && DB.prepare) {
+            const existing = await DB.prepare(
+              "SELECT id FROM users WHERE google_id = ?"
+            ).bind(account.providerAccountId).first()
+            if (!existing) {
+              await DB.prepare(
+                "INSERT INTO users (id, google_id, email, name, avatar_url, plan, cloud_used_lifetime) VALUES (?, ?, ?, ?, ?, 'free', 0)"
+              ).bind(
+                account.providerAccountId,
+                account.providerAccountId,
+                user.email || "",
+                user.name || "",
+                user.image || ""
+              ).run()
+            }
+          }
+        } catch (e) {
+          console.error("DB write in signIn callback failed:", e)
+        }
+      }
+      return true
     },
   },
   session: {

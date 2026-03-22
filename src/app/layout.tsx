@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import AuthProvider from '@/components/AuthProvider';
 
 export const metadata: Metadata = {
   title: 'BGFree - 免费在线图片去背景工具',
@@ -22,7 +21,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="antialiased">
-        <AuthProvider>{children}</AuthProvider>
+        {children}
       </body>
     </html>
   );
