@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/app/api/auth/[...nextauth]/route'
 
 export const runtime = "edge"
 
@@ -13,11 +12,6 @@ const PLAN_CONFIG: Record<string, { credits?: number; creditsPerMonth?: number }
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session?.user) {
-      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
-    }
-
     const { searchParams } = new URL(request.url)
     const token = searchParams.get('token')
     const planId = searchParams.get('planId') || ''
@@ -31,7 +25,7 @@ export async function GET(request: NextRequest) {
     const PAYPAL_SECRET = process.env.PAYPAL_SECRET
 
     if (!PAYPAL_CLIENT_ID || !PAYPAL_SECRET) {
-      return NextResponse.redirect(new URL('/payment?status=failed&reason=config', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
     // 获取 PayPal Access Token
@@ -45,7 +39,7 @@ export async function GET(request: NextRequest) {
     })
 
     if (!tokenRes.ok) {
-      return NextResponse.redirect(new URL('/payment?status=failed&reason=paypal_token', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
     const { access_token } = await tokenRes.json()
@@ -55,7 +49,7 @@ export async function GET(request: NextRequest) {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${access_token}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json'
       },
     })
 
@@ -63,49 +57,42 @@ export async function GET(request: NextRequest) {
 
     if (!captureRes.ok || capture.status !== 'COMPLETED') {
       console.error('PayPal capture failed:', capture)
-      return NextResponse.redirect(new URL('/payment?status=failed&reason=capture', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
     const paypalOrderId = capture.id
     const amount = parseFloat(capture.purchase_units?.[0]?.amount?.value || '0')
-    const userId = session.user.id
+
+    // 从 custom_id 获取 userId（创建订单时传入的）
+    const customId = capture.purchase_units?.[0]?.custom_id || ''
+    const [userId] = customId.split(':')
+
+    if (!userId) {
+      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
+    }
 
     // 更新 D1
     const { DB } = (globalThis as any).cloudflare?.env || {}
 
     if (DB && DB.prepare) {
-      // 更新订单状态
+      // 保存支付记录
       await DB.prepare(
-        "UPDATE payments SET status = 'completed', completed_at = datetime('now'), amount = ? WHERE paypal_order_id = ?"
-      ).bind(amount, paypalOrderId).run()
+        "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status, completed_at) VALUES (?, ?, ?, ?, 'completed', datetime('now'))"
+      ).bind(`pay_${crypto.randomUUID().replace(/-/g, '')}`, userId, paypalOrderId, planId, amount).run()
 
       const plan = PLAN_CONFIG[planId]
 
       if (planType === 'credit' && plan?.credits) {
-        // 积分包：增加用户积分
+        // 积分包：增加积分
         await DB.prepare(
           "UPDATE users SET credits = credits + ?, updated_at = datetime('now') WHERE id = ?"
         ).bind(plan.credits, userId).run()
-      } else if (planType === 'subscription' && plan?.creditsPerMonth) {
-        // 月订阅：更新用户套餐
-        const planValue = planId === 'monthly_pro' ? 'pro' : 'starter'
-        await DB.prepare(
-          "UPDATE users SET plan = ?, updated_at = datetime('now') WHERE id = ?"
-        ).bind(planValue, userId).run()
-
-        // 创建订阅记录
-        const subId = `sub_${crypto.randomUUID().replace(/-/g, '')}`
-        const nextMonth = new Date()
-        nextMonth.setMonth(nextMonth.getMonth() + 1)
-        await DB.prepare(
-          "INSERT OR REPLACE INTO subscriptions (id, user_id, plan_type, status, credits_per_month, start_date, end_date) VALUES (?, ?, ?, 'active', ?, datetime('now'), ?)"
-        ).bind(subId, userId, planId, plan.creditsPerMonth, nextMonth.toISOString()).run()
       }
     }
 
-    return NextResponse.redirect(new URL('/payment?status=success&type=credit', request.url))
+    return NextResponse.redirect(new URL(`/payment?status=success&type=credit`, request.url))
   } catch (error) {
     console.error('Payment confirm error:', error)
-    return NextResponse.redirect(new URL('/payment?status=failed&reason=error', request.url))
+    return NextResponse.redirect(new URL('/payment?status=failed', request.url))
   }
 }
