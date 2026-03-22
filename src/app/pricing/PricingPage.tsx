@@ -88,7 +88,10 @@ const FAQ = [
   },
 ]
 
+import { useEnsureUser } from '@/hooks/useEnsureUser'
+
 export function PricingPage() {
+  useEnsureUser()
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const { data: session, status } = useSession()
 
