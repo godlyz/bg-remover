@@ -103,6 +103,10 @@ export async function POST(request: NextRequest) {
     // 保存订单到 D1
     const env = getCloudflareEnv(); const DB = env.DB
     if (DB && DB.prepare) {
+      // 确保用户存在
+      await DB.prepare(
+        "INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)"
+      ).bind(session.user.id, session.user.id).run()
       await DB.prepare(
         "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, 'pending')"
       ).bind(orderData.id, session.user.id, orderData.id, planId).run()

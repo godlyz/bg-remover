@@ -1,6 +1,6 @@
-import { getCloudflareEnv } from '@/lib/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/session'
+import { getCloudflareEnv } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -16,31 +16,38 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = session.user.id
-    const env = getCloudflareEnv(); const DB = env.DB
+    const env = getCloudflareEnv()
+    const DB = env.DB
 
     let plan = 'free'
     let credits = 0
-    let creditsExpiry = null
+    let creditsExpiry: string | null = null
     let freeUsed = 0
     let subUsed = 0
     let subTotal = 0
     let subscription = null
 
     if (DB && DB.prepare) {
+      // 懒创建用户（如果不存在）
       const user = await DB.prepare(
         "SELECT plan, credits, credits_expiry, cloud_used_lifetime FROM users WHERE id = ?"
       ).bind(userId).first()
 
-      if (user) {
+      if (!user) {
+        // 首次访问，创建用户
+        await DB.prepare(
+          "INSERT INTO users (id, google_id, email, name, avatar_url, plan, cloud_used_lifetime) VALUES (?, ?, ?, ?, ?, 'free', 0)"
+        ).bind(userId, userId, session.user.email || "", session.user.name || "", session.user.image || "").run()
+      } else {
         plan = user.plan as string
         credits = user.credits as number || 0
         creditsExpiry = user.credits_expiry as string | null
         freeUsed = user.cloud_used_lifetime as number || 0
-      }
 
-      // 清理过期积分
-      if (credits > 0 && creditsExpiry && new Date(creditsExpiry) < new Date()) {
-        credits = 0
+        // 清理过期积分
+        if (credits > 0 && creditsExpiry && new Date(creditsExpiry) < new Date()) {
+          credits = 0
+        }
       }
 
       // 月订阅用量
@@ -60,15 +67,15 @@ export async function GET(request: NextRequest) {
 
           // 检查周期是否过期，自动续期
           if (sub.periodEnd && new Date(sub.periodEnd) < new Date()) {
-            const newStart = sub.periodEnd
+            const newStart = sub.periodEnd as string
             const newEnd = new Date(new Date(newStart).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
             await DB.prepare(
               "UPDATE subscriptions SET period_start = ?, period_end = ? WHERE id = ?"
             ).bind(newStart, newEnd, sub.id).run()
-            subTotal = sub.credits_per_month
+            subTotal = sub.credits_per_month as number
             subUsed = 0
           } else {
-            const periodKey = (sub.period_start || '').slice(0, 7)
+            const periodKey = (sub.period_start as string || '').slice(0, 7)
             const row = await DB.prepare(
               "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
             ).bind(userId, periodKey).first()

@@ -76,6 +76,11 @@ export async function GET(request: NextRequest) {
     const env = getCloudflareEnv(); const DB = env.DB
 
     if (DB && DB.prepare) {
+      // 确保用户存在（懒创建）
+      await DB.prepare(
+        "INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)"
+      ).bind(userId, userId).run()
+
       // 保存支付记录
       await DB.prepare(
         "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status, completed_at) VALUES (?, ?, ?, ?, 'completed', datetime('now'))"
