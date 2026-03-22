@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -10,8 +9,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'unauthorized', message: '请先登录' }, { status: 401 })
     }
 
-    const db = getDB()
-    const users = await db.query("SELECT plan, credits, credits_expiry, cloud_used_lifetime FROM users WHERE id = ?", [userId])
+    const users = await dbQuery("SELECT plan, credits, credits_expiry, cloud_used_lifetime FROM users WHERE id = ?", [userId])
 
     let plan = 'free', credits = 0, creditsExpiry: string | null = null, freeUsed = 0
     if (users.length > 0) {
@@ -30,7 +28,7 @@ export async function GET(request: NextRequest) {
     let subUsed = 0, subTotal = 0, subscription = null
 
     if (plan !== 'free') {
-      const subs = await db.query(
+      const subs = await dbQuery(
         "SELECT id, plan_type, credits_per_month, period_start, period_end FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
         [userId]
       )
@@ -47,12 +45,12 @@ export async function GET(request: NextRequest) {
         if (sub.period_end && new Date(sub.period_end) < new Date()) {
           const newStart = sub.period_end
           const newEnd = new Date(new Date(newStart).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
-          await db.run("UPDATE subscriptions SET period_start = ?, period_end = ? WHERE id = ?", [newStart, newEnd, sub.id])
+          await dbQuery("UPDATE subscriptions SET period_start = ?, period_end = ? WHERE id = ?", [newStart, newEnd, sub.id])
           subTotal = sub.credits_per_month
           subUsed = 0
         } else {
           const periodKey = (sub.period_start || '').slice(0, 7)
-          const rows = await db.query("SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?", [userId, periodKey])
+          const rows = await dbQuery("SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?", [userId, periodKey])
           subUsed = rows.length > 0 ? (rows[0].cloud_used || 0) : 0
         }
       }

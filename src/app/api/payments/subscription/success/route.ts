@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -62,17 +61,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
-    const db = getDB()
 
     // 确保用户存在
-    await db.run(
+    await dbQuery(
       "INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)",
       [userId, userId]
     )
 
     // 保存支付记录
     const payId = `pay_${crypto.randomUUID().replace(/-/g, '')}`
-    await db.run(
+    await dbQuery(
       "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status, completed_at) VALUES (?, ?, ?, ?, 'completed', datetime('now'))",
       [payId, userId, paypalOrderId, actualPlanId, amount]
     )
@@ -80,7 +78,7 @@ export async function GET(request: NextRequest) {
     // 更新用户套餐
     const plan = PLAN_CONFIG[actualPlanId]
     if (plan) {
-      await db.run(
+      await dbQuery(
         "UPDATE users SET plan = ?, updated_at = datetime('now') WHERE id = ?",
         [plan.planValue, userId]
       )
@@ -89,7 +87,7 @@ export async function GET(request: NextRequest) {
       const subId = `sub_${crypto.randomUUID().replace(/-/g, '')}`
       const now = new Date().toISOString()
       const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-      await db.run(
+      await dbQuery(
         "INSERT INTO subscriptions (id, user_id, plan_type, status, credits_per_month, period_start, period_end, start_date) VALUES (?, ?, ?, 'active', ?, ?, ?, datetime('now'))",
         [subId, userId, actualPlanId, plan.creditsPerMonth, now, periodEnd]
       )

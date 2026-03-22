@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -15,19 +14,18 @@ export async function POST(request: NextRequest) {
     const name = body.name || ''
     const image = body.image || ''
 
-    const db = getDB()
 
     // 先检查是否已存在
-    const existing = await db.query("SELECT id FROM users WHERE id = ?", [userId])
+    const existing = await dbQuery("SELECT id FROM users WHERE id = ?", [userId])
     if (!existing || existing.length === 0) {
       // 新用户，创建记录
-      await db.run(
+      await dbQuery(
         "INSERT INTO users (id, google_id, email, name, avatar_url, plan, cloud_used_lifetime) VALUES (?, ?, ?, ?, ?, 'free', 0)",
         [userId, userId, email, name, image]
       )
     } else {
       // 已存在，更新信息
-      await db.run(
+      await dbQuery(
         "UPDATE users SET email = COALESCE(NULLIF(email, ''), ?), name = COALESCE(NULLIF(name, ''), ?), avatar_url = COALESCE(NULLIF(avatar_url, ''), ?), updated_at = datetime('now') WHERE id = ?",
         [email, name, image, userId]
       )

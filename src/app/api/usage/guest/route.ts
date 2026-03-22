@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 

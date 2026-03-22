@@ -1,6 +1,5 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
-import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -28,14 +27,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // 新用户首次登录，写入 D1 数据库
       if (account && user) {
         try {
-          const db = getDB()
           if (DB && DB.prepare) {
-            const existing = await db.query(
+            const existing = await dbQuery(
               "SELECT id FROM users WHERE google_id = ?",
               [account.providerAccountId]
             )
             if (!existing || existing.length === 0) {
-              await db.run(
+              await dbQuery(
                 "INSERT INTO users (id, google_id, email, name, avatar_url, plan, cloud_used_lifetime) VALUES (?, ?, ?, ?, ?, 'free', 0)",
                 [account.providerAccountId, account.providerAccountId, user.email || "", user.name || "", user.image || ""]
               )

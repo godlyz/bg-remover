@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -63,10 +62,9 @@ export async function POST(request: NextRequest) {
     const orderData = await orderRes.json()
 
     // 写入 D1
-    const db = getDB()
     try {
-      await db.run("INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)", [userEmail, userEmail])
-      await db.run("INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, ?, 'pending')", [orderData.id, userEmail, orderData.id, planId, plan.amount])
+      await dbQuery("INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)", [userEmail, userEmail])
+      await dbQuery("INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, ?, 'pending')", [orderData.id, userEmail, orderData.id, planId, plan.amount])
     } catch (e) {
       console.error('DB write error:', e)
     }

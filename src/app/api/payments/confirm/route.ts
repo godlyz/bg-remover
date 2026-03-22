@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -67,17 +66,16 @@ export async function GET(request: NextRequest) {
     }
 
     // 通过 Cloudflare REST API 写入 D1
-    const db = getDB()
 
     // 确保用户存在
-    await db.run(
+    await dbQuery(
       "INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)",
       [userId, userId]
     )
 
     // 保存支付记录
     const payId = `pay_${crypto.randomUUID().replace(/-/g, '')}`
-    await db.run(
+    await dbQuery(
       "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status, completed_at) VALUES (?, ?, ?, ?, 'completed', datetime('now'))",
       [payId, userId, paypalOrderId, planId, amount]
     )
@@ -85,7 +83,7 @@ export async function GET(request: NextRequest) {
     // 积分包：增加积分
     const plan = PLAN_CONFIG[planId]
     if (planType === 'credit' && plan?.credits) {
-      await db.run(
+      await dbQuery(
         "UPDATE users SET credits = credits + ?, credits_expiry = datetime('now', '+365 days'), updated_at = datetime('now') WHERE id = ?",
         [plan.credits, userId]
       )

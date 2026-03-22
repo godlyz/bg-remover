@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -10,12 +9,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'unauthorized', message: '请先登录' }, { status: 401 })
     }
 
-    const db = getDB()
-    await db.run(
+    await dbQuery(
       "UPDATE subscriptions SET status = 'cancelled' WHERE user_id = ? AND status = 'active'",
       [userId]
     )
-    await db.run(
+    await dbQuery(
       "UPDATE users SET plan = 'free', updated_at = datetime('now') WHERE id = ?",
       [userId]
     )
