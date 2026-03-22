@@ -83,10 +83,20 @@ export async function GET(request: NextRequest) {
       const plan = PLAN_CONFIG[planId]
 
       if (planType === 'credit' && plan?.credits) {
-        // 积分包：增加积分
+        // 积分包：增加积分，365 天过期
+        const expiry = new Date()
+        expiry.setDate(expiry.getDate() + 365)
+        const currentExpiry = await DB.prepare(
+          "SELECT credits_expiry FROM users WHERE id = ?"
+        ).bind(userId).first()
+        // 取当前过期时间和新过期时间的较晚值
+        const newExpiry = (!currentExpiry?.credits_expiry || new Date(currentExpiry.credits_expiry) < new Date())
+          ? expiry.toISOString()
+          : currentExpiry.credits_expiry
+
         await DB.prepare(
-          "UPDATE users SET credits = credits + ?, updated_at = datetime('now') WHERE id = ?"
-        ).bind(plan.credits, userId).run()
+          "UPDATE users SET credits = credits + ?, credits_expiry = ?, updated_at = datetime('now') WHERE id = ?"
+        ).bind(plan.credits, newExpiry, userId).run()
       }
     }
 

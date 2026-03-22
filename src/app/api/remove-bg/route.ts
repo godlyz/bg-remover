@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
   let userType = 'guest'
   let plan = 'free'
   let credits = 0
+  let creditsExpired = false
 
   const authSession = request.headers.get('x-auth-session')
   if (authSession) {
@@ -72,22 +73,36 @@ export async function POST(request: NextRequest) {
         userId = session.user.id
         if (DB && DB.prepare) {
           const user = await DB.prepare(
-            "SELECT plan, cloud_used_lifetime, credits FROM users WHERE id = ?"
+            "SELECT plan, cloud_used_lifetime, credits, credits_expiry FROM users WHERE id = ?"
           ).bind(userId).first()
           if (user) {
             plan = user.plan as string
             credits = user.credits as number || 0
-            if (plan === 'free') {
-              userType = 'free'
-            } else if (credits > 0) {
+            // 检查积分是否过期
+            const expiry = user.credits_expiry as string | null
+            if (credits > 0 && expiry && new Date(expiry) < new Date()) {
+              credits = 0
+              creditsExpired = true
+            }
+            // 消耗优先级：积分 > 月订阅 > 免费
+            if (credits > 0) {
               userType = 'credits'
-            } else {
+            } else if (plan !== 'free') {
               userType = 'paid'
+            } else {
+              userType = 'free'
             }
           }
         }
       }
     } catch { /* ignore */ }
+  }
+
+  // 清理过期积分（异步，不影响请求）
+  if (creditsExpired && DB && DB.prepare && userId) {
+    DB.prepare(
+      "UPDATE users SET credits = 0, credits_expiry = NULL, updated_at = datetime('now') WHERE id = ?"
+    ).bind(userId).run()
   }
 
   // --- 2. 计算用量 ---

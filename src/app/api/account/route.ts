@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     }
 
     const user = await DB.prepare(
-      "SELECT id, email, name, avatar_url, plan, cloud_used_lifetime, credits, created_at FROM users WHERE id = ?"
+      "SELECT id, email, name, avatar_url, plan, cloud_used_lifetime, credits, credits_expiry, created_at FROM users WHERE id = ?"
     ).bind(userId).first()
 
     if (!user) {
@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
       plan: user.plan,
       createdAt: user.created_at,
       credits: user.credits || 0,
+      creditsExpiry: user.credits_expiry,
       subscription,
     })
   } catch (error) {

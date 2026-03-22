@@ -30,21 +30,28 @@ export async function GET(request: NextRequest) {
         plan = user.plan as string
         credits = user.credits as number || 0
 
-        if (plan === 'free') {
-          used = user.cloud_used_lifetime as number
-          total = 3
-        } else if (credits > 0) {
+        // 检查积分过期
+        const expiry = user.credits_expiry as string | null
+        if (credits > 0 && expiry && new Date(expiry) < new Date()) {
+          credits = 0
+        }
+
+        if (credits > 0) {
           // 有积分，优先显示积分
           used = 0
           total = credits
-        } else {
-          // 月订阅用户
+        } else if (plan !== 'free') {
+          // 月订阅
           const month = new Date().toISOString().slice(0, 7)
           const row = await DB.prepare(
             "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
           ).bind(userId, month).first()
           used = row ? (row.cloud_used as number) : 0
           total = plan === 'starter' ? 25 : plan === 'pro' ? 60 : 300
+        } else {
+          // 免费
+          used = user.cloud_used_lifetime as number
+          total = 3
         }
       }
     }

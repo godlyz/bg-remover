@@ -110,7 +110,11 @@ export default function AccountPage() {
             <h2 className="text-lg font-semibold text-gray-900">积分余额</h2>
             <span className="text-2xl font-bold text-blue-600">{userInfo.credits}</span>
           </div>
-          <p className="text-sm text-gray-400">永久有效，用完为止</p>
+          {userInfo.creditsExpiry && (
+            <p className="text-sm text-gray-400">
+              有效期至 {new Date(userInfo.creditsExpiry).toLocaleDateString('zh-CN')}
+            </p>
+          )}
         </div>
       )}
 
