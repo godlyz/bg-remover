@@ -5,7 +5,7 @@ export const runtime = "edge"
 /** 获取套餐对应的最大月用量 */
 function getMaxUsage(plan: string): number {
   switch (plan) {
-    case 'guest': return 1
+    case 'guest': return 0
     case 'free': return 3
     case 'starter': return 30
     case 'pro': return 100
