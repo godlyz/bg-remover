@@ -1,3 +1,4 @@
+import { getDB } from '@/lib/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/session'
 
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = session.user.id
-    const { DB } = (globalThis as any).cloudflare?.env || {}
+    const DB = await getDB()
 
     let plan = 'free'
     let credits = 0

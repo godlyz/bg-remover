@@ -1,5 +1,6 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
+import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -27,7 +28,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // 新用户首次登录，写入 D1 数据库
       if (account && user) {
         try {
-          const { DB } = (globalThis as any).cloudflare?.env || {}
+          const DB = await getDB()
           if (DB && DB.prepare) {
             const existing = await DB.prepare(
               "SELECT id FROM users WHERE google_id = ?"

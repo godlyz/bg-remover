@@ -1,3 +1,4 @@
+import { getDB } from '@/lib/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/session'
 
@@ -100,7 +101,7 @@ export async function POST(request: NextRequest) {
     const orderData = await orderRes.json()
 
     // 保存订单到 D1
-    const { DB } = (globalThis as any).cloudflare?.env || {}
+    const DB = await getDB()
     if (DB && DB.prepare) {
       await DB.prepare(
         "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, 'pending')"

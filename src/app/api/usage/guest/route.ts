@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getKV } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
-/**
- * 未登录访客用量查询
- * GET /api/usage/guest
- * 通过 IP+UA fingerprint 识别
- */
 export async function GET(request: NextRequest) {
-  const { KV } = (globalThis as any).cloudflare?.env || {}
+  const KV = await getKV()
 
   const ip = request.headers.get('cf-connecting-ip') || 'unknown'
   const ua = request.headers.get('user-agent') || ''

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSessionFromRequest } from '@/lib/session'
+import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -61,7 +61,6 @@ export async function POST(request: NextRequest) {
 
     const baseUrl = process.env.NEXTAUTH_URL || 'https://www.bg-remover.site'
 
-    // 创建订阅订单
     const orderRes = await fetch('https://api-m.sandbox.paypal.com/v2/checkout/orders', {
       method: 'POST',
       headers: {
@@ -96,8 +95,7 @@ export async function POST(request: NextRequest) {
 
     const orderData = await orderRes.json()
 
-    // 保存 pending 订单到 D1
-    const { DB } = (globalThis as any).cloudflare?.env || {}
+    const DB = await getDB()
     if (DB && DB.prepare) {
       await DB.prepare(
         "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, 'pending')"
@@ -115,7 +113,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       orderId: orderData.id,
-      approvalUrl: approveLink,
+      approvalUrl: approvalUrl,
     })
   } catch (error) {
     console.error('Create subscription error:', error)

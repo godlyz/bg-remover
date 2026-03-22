@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getDB, getKV } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -44,8 +45,9 @@ async function selectApiKey(KV: any): Promise<string | null> {
  * remove.bg API 代理路由（带用量控制 + API Key 轮换）
  */
 export async function POST(request: NextRequest) {
-  const env = (globalThis as any).cloudflare?.env || {}
-  const { DB, KV } = env || {}
+  const DB = await getDB()
+  const KV = await getKV()
+  const env = { DB, KV }
 
   // --- 1. 身份识别 ---
   let userId: string | null = null

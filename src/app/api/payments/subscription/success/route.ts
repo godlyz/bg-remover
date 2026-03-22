@@ -1,3 +1,4 @@
+import { getDB } from '@/lib/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionFromRequest } from '@/lib/session'
 
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
     const actualPlanId = parts.slice(2)
 
     // 更新 D1
-    const { DB } = (globalThis as any).cloudflare?.env || {}
+    const DB = await getDB()
 
     if (DB && DB.prepare && userId) {
       // 更新支付记录
