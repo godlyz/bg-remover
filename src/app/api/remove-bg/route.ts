@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = "edge"
+
 /**
  * remove.bg API 代理路由
  * 接收前端上传的图片，转发到 remove.bg API 处理

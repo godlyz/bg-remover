@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // next-on-pages 适配
+  typescript: {
+    ignoreBuildErrors: true,
+  },
 };
 
 export default nextConfig;

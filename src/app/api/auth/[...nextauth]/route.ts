@@ -1,6 +1,8 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
 
+export const runtime = "edge"
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Google({
@@ -25,9 +27,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token
     },
   },
+  session: {
+    strategy: "jwt",
+  },
   secret: process.env.NEXTAUTH_SECRET,
 })
 
-// Next.js 16 兼容：使用 handlers 对象导出 GET/POST
-export const GET = handlers.GET
-export const POST = handlers.POST
+export const { GET, POST } = handlers
