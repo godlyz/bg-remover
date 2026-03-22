@@ -1,8 +1,12 @@
-import { getCloudflareEnv } from '@/lib/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
-import { getSessionFromRequest } from '@/lib/session'
+import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
+
+const PLAN_CONFIG: Record<string, { creditsPerMonth: number; planValue: string }> = {
+  monthly_basic: { creditsPerMonth: 25, planValue: 'starter' },
+  monthly_pro: { creditsPerMonth: 60, planValue: 'pro' },
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,7 +24,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
-    // 获取 PayPal Token
     const tokenRes = await fetch('https://api-m.sandbox.paypal.com/v1/oauth2/token', {
       method: 'POST',
       headers: {
@@ -36,13 +39,9 @@ export async function GET(request: NextRequest) {
 
     const { access_token } = await tokenRes.json()
 
-    // Capture 一次性支付
     const captureRes = await fetch(`https://api-m.sandbox.paypal.com/v2/checkout/orders/${token}/capture`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${access_token}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `Bearer ${access_token}`, 'Content-Type': 'application/json' },
     })
 
     const capture = await captureRes.json()
@@ -53,54 +52,50 @@ export async function GET(request: NextRequest) {
     }
 
     const paypalOrderId = capture.id
-    const customId = capture.purchase_units?.[0]?.custom_id || ''
     const amount = parseFloat(capture.purchase_units?.[0]?.amount?.value || '0')
+    const customId = capture.purchase_units?.[0]?.custom_id || ''
     const parts = customId.split(':')
     const userId = parts[0]
-    const actualPlanId = parts.slice(2)
+    const actualPlanId = parts.slice(2).join(':')
 
-    // 更新 D1
-    const env = getCloudflareEnv(); const DB = env.DB
-
-    if (DB && DB.prepare && userId) {
-      // 确保用户存在（懒创建）
-      await DB.prepare(
-        "INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)"
-      ).bind(userId, userId).run()
-
-      // 更新支付记录
-      await DB.prepare(
-        "UPDATE payments SET status = 'completed', completed_at = datetime('now'), amount = ? WHERE paypal_order_id = ?"
-      ).bind(amount, paypalOrderId).run()
-
-      // 更新用户积分或套餐
-      const planValue = actualPlanId === 'monthly_pro' ? 'pro' : actualPlanId === 'monthly_basic' ? 'starter' : 'free'
-      let type = ''
-
-      if (actualPlanId.startsWith('monthly_')) {
-        // 月订阅
-        type = 'subscription'
-        await DB.prepare(
-          "UPDATE users SET plan = ?, updated_at = datetime('now') WHERE id = ?"
-        ).bind(planValue, userId).run()
-
-        // 创建订阅记录
-        const subId = `sub_${crypto.randomUUID().replace(/-/g, '')}`
-        const now = new Date()
-        const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
-        await DB.prepare(
-          "INSERT OR REPLACE INTO subscriptions (id, user_id, plan_type, status, credits_per_month, period_start, period_end, start_date) VALUES (?, ?, ?, 'active', ?, ?, ?, datetime('now'))"
-        ).bind(subId, userId, actualPlanId, planValue === 'pro' ? 60 : 25, now.toISOString(), periodEnd).run()
-      } else {
-        // 积分包
-        type = 'credits'
-        const credits = PLAN_CONFIG[actualPlanId]?.credits || 0
-        await DB.prepare(
-          "UPDATE users SET credits = credits + ?, credits_expiry = datetime('now', '+365 days), updated_at = datetime('now') WHERE id = ?"
-        ).bind(credits, userId).run()
-      }
+    if (!userId) {
+      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
+    const db = getDB()
+
+    // 确保用户存在
+    await db.run(
+      "INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)",
+      [userId, userId]
+    )
+
+    // 保存支付记录
+    const payId = `pay_${crypto.randomUUID().replace(/-/g, '')}`
+    await db.run(
+      "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status, completed_at) VALUES (?, ?, ?, ?, 'completed', datetime('now'))",
+      [payId, userId, paypalOrderId, actualPlanId, amount]
+    )
+
+    // 更新用户套餐
+    const plan = PLAN_CONFIG[actualPlanId]
+    if (plan) {
+      await db.run(
+        "UPDATE users SET plan = ?, updated_at = datetime('now') WHERE id = ?",
+        [plan.planValue, userId]
+      )
+
+      // 创建订阅记录
+      const subId = `sub_${crypto.randomUUID().replace(/-/g, '')}`
+      const now = new Date().toISOString()
+      const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      await db.run(
+        "INSERT INTO subscriptions (id, user_id, plan_type, status, credits_per_month, period_start, period_end, start_date) VALUES (?, ?, ?, 'active', ?, ?, ?, datetime('now'))",
+        [subId, userId, actualPlanId, plan.creditsPerMonth, now, periodEnd]
+      )
+    }
+
+    const type = plan ? 'subscription' : 'credit'
     return NextResponse.redirect(new URL(`/payment?status=success&type=${type}`, request.url))
   } catch (error) {
     console.error('Subscription success error:', error)

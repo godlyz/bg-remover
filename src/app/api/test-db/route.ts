@@ -1,17 +1,14 @@
-import { NextResponse } from 'next/server'
-import { getCloudflareEnv } from '@/lib/cloudflare'
+import { NextRequest, NextResponse } from 'next/server'
+import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
 export async function GET() {
   try {
-    const env = getCloudflareEnv()
-    const DB = env?.DB
+    const db = getDB()
     return NextResponse.json({
-      hasEnv: !!env,
-      hasDB: !!DB,
-      hasPrepare: DB?.prepare ? true : false,
-      envKeys: env ? Object.keys(env) : [],
+      hasDB: !!db,
+      test: await db.query("SELECT 1 as test", []),
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message, stack: e.stack?.slice(0, 300) }, { status: 500 })

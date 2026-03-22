@@ -1,6 +1,6 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
-import { getCloudflareEnv } from '@/lib/cloudflare'
+import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
@@ -28,22 +28,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // 新用户首次登录，写入 D1 数据库
       if (account && user) {
         try {
-          const env = getCloudflareEnv()
-          const DB = env.DB
+          const db = getDB()
           if (DB && DB.prepare) {
-            const existing = await DB.prepare(
-              "SELECT id FROM users WHERE google_id = ?"
-            ).bind(account.providerAccountId).first()
-            if (!existing) {
-              await DB.prepare(
-                "INSERT INTO users (id, google_id, email, name, avatar_url, plan, cloud_used_lifetime) VALUES (?, ?, ?, ?, ?, 'free', 0)"
-              ).bind(
-                account.providerAccountId,
-                account.providerAccountId,
-                user.email || "",
-                user.name || "",
-                user.image || ""
-              ).run()
+            const existing = await db.query(
+              "SELECT id FROM users WHERE google_id = ?",
+              [account.providerAccountId]
+            )
+            if (!existing || existing.length === 0) {
+              await db.run(
+                "INSERT INTO users (id, google_id, email, name, avatar_url, plan, cloud_used_lifetime) VALUES (?, ?, ?, ?, ?, 'free', 0)",
+                [account.providerAccountId, account.providerAccountId, user.email || "", user.name || "", user.image || ""]
+              )
             }
           }
         } catch (e) {

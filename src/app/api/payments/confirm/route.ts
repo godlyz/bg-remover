@@ -1,14 +1,12 @@
-import { getCloudflareEnv } from '@/lib/cloudflare'
 import { NextRequest, NextResponse } from 'next/server'
+import { getDB } from '@/lib/cloudflare'
 
 export const runtime = "edge"
 
-const PLAN_CONFIG: Record<string, { credits?: number; creditsPerMonth?: number }> = {
+const PLAN_CONFIG: Record<string, { credits?: number }> = {
   credits_10: { credits: 10 },
   credits_30: { credits: 30 },
   credits_80: { credits: 80 },
-  monthly_basic: { creditsPerMonth: 25 },
-  monthly_pro: { creditsPerMonth: 60 },
 }
 
 export async function GET(request: NextRequest) {
@@ -29,7 +27,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
-    // 获取 PayPal Access Token
     const tokenRes = await fetch('https://api-m.sandbox.paypal.com/v1/oauth2/token', {
       method: 'POST',
       headers: {
@@ -45,26 +42,23 @@ export async function GET(request: NextRequest) {
 
     const { access_token } = await tokenRes.json()
 
-    // Capture 支付
     const captureRes = await fetch(`https://api-m.sandbox.paypal.com/v2/checkout/orders/${token}/capture`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${access_token}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
     })
 
     const capture = await captureRes.json()
 
     if (!captureRes.ok || capture.status !== 'COMPLETED') {
-      console.error('PayPal capture failed:', capture)
+      console.error('PayPal capture failed:', JSON.stringify(capture).slice(0, 300))
       return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
     const paypalOrderId = capture.id
     const amount = parseFloat(capture.purchase_units?.[0]?.amount?.value || '0')
-
-    // 从 custom_id 获取 userId（创建订单时传入的）
     const customId = capture.purchase_units?.[0]?.custom_id || ''
     const [userId] = customId.split(':')
 
@@ -72,38 +66,29 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
-    // 更新 D1
-    const env = getCloudflareEnv(); const DB = env.DB
+    // 通过 Cloudflare REST API 写入 D1
+    const db = getDB()
 
-    if (DB && DB.prepare) {
-      // 确保用户存在（懒创建）
-      await DB.prepare(
-        "INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)"
-      ).bind(userId, userId).run()
+    // 确保用户存在
+    await db.run(
+      "INSERT OR IGNORE INTO users (id, google_id, plan, cloud_used_lifetime) VALUES (?, ?, 'free', 0)",
+      [userId, userId]
+    )
 
-      // 保存支付记录
-      await DB.prepare(
-        "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status, completed_at) VALUES (?, ?, ?, ?, 'completed', datetime('now'))"
-      ).bind(`pay_${crypto.randomUUID().replace(/-/g, '')}`, userId, paypalOrderId, planId, amount).run()
+    // 保存支付记录
+    const payId = `pay_${crypto.randomUUID().replace(/-/g, '')}`
+    await db.run(
+      "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status, completed_at) VALUES (?, ?, ?, ?, 'completed', datetime('now'))",
+      [payId, userId, paypalOrderId, planId, amount]
+    )
 
-      const plan = PLAN_CONFIG[planId]
-
-      if (planType === 'credit' && plan?.credits) {
-        // 积分包：增加积分，365 天过期
-        const expiry = new Date()
-        expiry.setDate(expiry.getDate() + 365)
-        const currentExpiry = await DB.prepare(
-          "SELECT credits_expiry FROM users WHERE id = ?"
-        ).bind(userId).first()
-        // 取当前过期时间和新过期时间的较晚值
-        const newExpiry = (!currentExpiry?.credits_expiry || new Date(currentExpiry.credits_expiry) < new Date())
-          ? expiry.toISOString()
-          : currentExpiry.credits_expiry
-
-        await DB.prepare(
-          "UPDATE users SET credits = credits + ?, credits_expiry = ?, updated_at = datetime('now') WHERE id = ?"
-        ).bind(plan.credits, newExpiry, userId).run()
-      }
+    // 积分包：增加积分
+    const plan = PLAN_CONFIG[planId]
+    if (planType === 'credit' && plan?.credits) {
+      await db.run(
+        "UPDATE users SET credits = credits + ?, credits_expiry = datetime('now', '+365 days'), updated_at = datetime('now') WHERE id = ?",
+        [plan.credits, userId]
+      )
     }
 
     return NextResponse.redirect(new URL(`/payment?status=success&type=credit`, request.url))
