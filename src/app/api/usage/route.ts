@@ -1,69 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@/app/api/auth/[...nextauth]/route'
 
 export const runtime = "edge"
 
-/**
- * 已登录用户用量查询
- * GET /api/usage
- * 返回: { used, total, plan, lifetimeUsed }
- */
 export async function GET(request: NextRequest) {
-  const { DB } = (globalThis as any).cloudflare?.env || {}
-
-  const authSession = request.headers.get('x-auth-session')
-  if (!authSession) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
-
   try {
-    const session = JSON.parse(authSession)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    const session = await auth()
+
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: 'unauthorized', message: '请先登录' },
+        { status: 401 }
+      )
     }
 
     const userId = session.user.id
+    const { DB } = (globalThis as any).cloudflare?.env || {}
 
-    if (!DB || !DB.prepare) {
-      return NextResponse.json({ error: 'db_unavailable' }, { status: 500 })
+    let plan = 'free'
+    let used = 0
+    let total = 3
+
+    if (DB && DB.prepare) {
+      const user = await DB.prepare(
+        "SELECT plan, cloud_used_lifetime FROM users WHERE id = ?"
+      ).bind(userId).first()
+
+      if (user) {
+        plan = user.plan as string
+        if (plan === 'free') {
+          used = user.cloud_used_lifetime as number
+          total = 3
+        } else {
+          const month = new Date().toISOString().slice(0, 7)
+          const row = await DB.prepare(
+            "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
+          ).bind(userId, month).first()
+          used = row ? (row.cloud_used as number) : 0
+          total = plan === 'starter' ? 30 : plan === 'pro' ? 100 : 300
+        }
+      }
     }
 
-    const user = await DB.prepare(
-      "SELECT plan, cloud_used_lifetime FROM users WHERE id = ?"
-    ).bind(userId).first()
-
-    if (!user) {
-      return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
-    }
-
-    const plan = user.plan as string
-    const lifetimeUsed = user.cloud_used_lifetime as number
-
-    const month = new Date().toISOString().slice(0, 7)
-    const usageRow = await DB.prepare(
-      "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
-    ).bind(userId, month).first()
-
-    const monthlyUsed = usageRow ? (usageRow.cloud_used as number) : 0
-    const total = getMaxUsage(plan)
-
-    return NextResponse.json({
-      used: plan === 'free' ? lifetimeUsed : monthlyUsed,
-      total,
-      plan,
-      lifetimeUsed,
-      month,
-    })
-  } catch {
-    return NextResponse.json({ error: 'internal_error' }, { status: 500 })
-  }
-}
-
-function getMaxUsage(plan: string): number {
-  switch (plan) {
-    case 'free': return 3
-    case 'starter': return 30
-    case 'pro': return 100
-    case 'business': return 300
-    default: return 0
+    return NextResponse.json({ used, total, plan })
+  } catch (error) {
+    console.error('Usage API error:', error)
+    return NextResponse.json(
+      { error: 'internal_error', message: '服务异常' },
+      { status: 500 }
+    )
   }
 }

@@ -1,47 +1,48 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { useSession, SessionProvider } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
-function AccountView() {
+export default function AccountPage() {
   const router = useRouter()
-  const { data: session, status: sessionStatus } = useSession()
   const [userInfo, setUserInfo] = useState<any>(null)
   const [usage, setUsage] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (sessionStatus === 'unauthenticated') {
-      router.push('/')
-      return
-    }
-    if (sessionStatus === 'loading' || !session?.user) return
-
-    const authSession = (window as any).__authSession
-    if (!authSession) return
-
-    fetch('/api/account', {
-      headers: { 'X-Auth-Session': authSession },
-    })
-      .then(res => res.json())
+    // 直接调用 /api/account，不需要 session（API 自己检查 cookie）
+    fetch('/api/account')
+      .then(res => {
+        if (res.status === 401) {
+          // 未登录，跳转首页
+          router.push('/')
+          return null
+        }
+        return res.json()
+      })
       .then(data => {
-        if (data.error) { setError(data.message); return }
+        if (!data) return
+        if (data.error) {
+          setError(data.message)
+          setLoading(false)
+          return
+        }
         setUserInfo(data)
-      })
-      .catch(() => setError('获取用户信息失败'))
+        setLoading(false)
 
-    fetch('/api/usage', {
-      headers: { 'X-Auth-Session': authSession },
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) return
-        setUsage(data)
+        // 获取用量
+        return fetch('/api/usage')
+          .then(res => res.json())
+          .then(u => { if (!u.error) setUsage(u) })
+          .catch(() => {})
       })
-      .catch(() => {})
-  }, [session, sessionStatus, router])
+      .catch(() => {
+        setError('获取用户信息失败')
+        setLoading(false)
+      })
+  }, [router])
 
   const planName = (plan: string) => {
     switch (plan) {
@@ -52,10 +53,21 @@ function AccountView() {
     }
   }
 
-  if (sessionStatus === 'loading' || !userInfo) {
+  if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-8">
+        <div className="rounded-xl bg-red-50 p-4 text-center text-sm text-red-600">{error}</div>
+        <div className="mt-6 text-center">
+          <Link href="/" className="text-sm text-blue-600 hover:underline">← 返回首页</Link>
+        </div>
       </div>
     )
   }
@@ -117,21 +129,9 @@ function AccountView() {
         </div>
       </div>
 
-      {error && (
-        <div className="mt-4 rounded-xl bg-red-50 p-4 text-center text-sm text-red-600">{error}</div>
-      )}
-
       <div className="mt-6 text-center">
         <Link href="/" className="text-sm text-blue-600 hover:underline">← 返回首页</Link>
       </div>
     </div>
-  )
-}
-
-export default function AccountPage() {
-  return (
-    <SessionProvider>
-      <AccountView />
-    </SessionProvider>
   )
 }
