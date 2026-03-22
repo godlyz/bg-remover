@@ -11,7 +11,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   pages: {
-    signIn: "/",
+    // 不自定义 signIn 页面，使用 NextAuth 内置登录页
   },
   callbacks: {
     async session({ session, token }) {
