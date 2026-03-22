@@ -2,23 +2,19 @@
  * Cloudflare D1 HTTP API 客户端
  * 
  * 通过 Cloudflare REST API 操作 D1 数据库
- * 环境变量通过 GitHub Actions 注入到 Pages 运行时
  */
 
-const ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID || ''
-const TOKEN = process.env.CLOUDFLARE_API_TOKEN || ''
-const DB_ID = process.env.D1_DATABASE_ID || 'a4d77ae3-c6aa-44a3-85ae-dd1ce1c8f0ef'
+const ACCOUNT_ID = '3d3880f37301637156fefbf92e495102'
+const API_TOKEN = process.env.CF_API_TOKEN || 'cfat_WH7R0GNa6c8vNMUiG1GB1pDUIRNvCBmZpV1ZLcJF0796ffee'
+const DB_ID = 'a4d77ae3-c6aa-44a3-85ae-dd1ce1c8f0ef'
 
 async function d1Query(sql: string, params: any[] = []): Promise<any> {
-  if (!ACCOUNT || !TOKEN) {
-    throw new Error('Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN env var')
-  }
   const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/d1/database/${DB_ID}/query`,
+    `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${DB_ID}/query`,
     {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${TOKEN}`,
+        'Authorization': `Bearer ${API_TOKEN}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ sql, params }),
