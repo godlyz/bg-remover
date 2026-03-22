@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSession, SessionProvider } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { Link } from 'next/link'
 
 function AccountContent() {
   const router = useRouter()

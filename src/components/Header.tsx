@@ -7,7 +7,6 @@ import { useSession, signOut } from "next-auth/react"
 export default function Header() {
   const { data: session, status } = useSession()
   const [showDropdown, setShowDropdown] = useState(false)
-  const [showMobileMenu, setShowMobileMenu] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // 点击外部关闭下拉菜单
@@ -28,15 +27,6 @@ export default function Header() {
     }
   }, [session])
 
-  const planName = (plan: string | undefined) => {
-    switch (plan) {
-      case 'starter': return '入门'
-      case 'pro': return '进阶'
-      case 'business': return '专业'
-      default: return '免费'
-    }
-  }
-
   return (
     <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
@@ -52,27 +42,13 @@ export default function Header() {
 
         {/* 右侧 */}
         <div className="flex items-center gap-3">
-          {/* GitHub */}
-          <a
-            href="https://github.com/godlyz/bg-remover"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-          >
-            <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.999 3.003-.404 2.09-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-            </svg>
-            <span className="hidden sm:inline">GitHub</span>
-          </a>
-
-          {/* 用户区域 */}
           {status === "loading" ? (
             <div className="h-8 w-20 animate-pulse rounded-lg bg-gray-100" />
           ) : session?.user ? (
             <div className="relative" ref={dropdownRef}>
               {/* 头像按钮 */}
               <button
-                onClick={() => setShowDropdown(!showDropdown)}
+                onClick={(e) => { e.stopPropagation(); setShowDropdown(!showDropdown) }}
                 className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
               >
                 {session.user.image && (
@@ -86,38 +62,33 @@ export default function Header() {
                 <span className="hidden text-sm text-gray-700 sm:inline">
                   {session.user.name?.split(" ")[0] || "用户"}
                 </span>
-                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m19 9-6 6 6" />
+                <svg className={`h-4 w-4 text-gray-400 transition-transform ${showDropdown ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
                 </svg>
               </button>
 
               {/* 下拉菜单 */}
               {showDropdown && (
                 <div className="absolute right-0 top-full mt-1 w-48 rounded-xl bg-white border border-gray-100 py-1 shadow-lg">
-                  {/* 方案标识 */}
-                  <div className="px-4 py-2 border-b border-gray-100">
-                    <div className="text-xs text-gray-400">当前方案</div>
-                    <div className="text-sm font-medium text-gray-700">{planName(session.user.plan)}</div>
-                  </div>
-
                   {/* 个人中心 */}
                   <a
                     href="/account"
+                    onClick={() => setShowDropdown(false)}
                     className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
                   >
                     <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0zM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
                     </svg>
                     个人中心
                   </a>
 
                   {/* 退出 */}
                   <button
-                    onClick={() => signOut()}
+                    onClick={() => { setShowDropdown(false); signOut() }}
                     className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-500 transition-colors hover:bg-red-50"
                   >
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 21H5a2 2 0 00-2 2v-4a2 2 0 012-2 2H5a2 2 0 00-2 2v4a2 2 0 002 2zm9 0h6v-6a2 2 0 00-2-2V5a2 2 0 00-2-2h-2.586a2 2 0 10-2 2V7a2 2 0 002 2z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3-3 3-3m0 0-3-3m3 3H9" />
                     </svg>
                     退出登录
                   </button>
