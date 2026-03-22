@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/app/api/auth/[...nextauth]/route'
+import { getSessionFromRequest } from '@/lib/session'
 
 export const runtime = "edge"
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session?.user) {
+    const session = getSessionFromRequest(request)
+
+    if (!session?.user?.id) {
       return NextResponse.json(
         { error: 'unauthorized', message: '请先登录' },
         { status: 401 }
@@ -16,59 +17,67 @@ export async function GET(request: NextRequest) {
     const userId = session.user.id
     const { DB } = (globalThis as any).cloudflare?.env || {}
 
-    if (!DB || !DB.prepare) {
-      // D1 不可用时返回 session 基本信息
-      return NextResponse.json({
-        id: userId,
-        email: session.user.email,
-        name: session.user.name,
-        avatarUrl: session.user.image,
-        plan: 'free',
-        createdAt: new Date().toISOString(),
-        credits: 0,
-        subscription: null,
-      })
-    }
-
-    const user = await DB.prepare(
-      "SELECT id, email, name, avatar_url, plan, cloud_used_lifetime, credits, credits_expiry, created_at FROM users WHERE id = ?"
-    ).bind(userId).first()
-
-    if (!user) {
-      return NextResponse.json(
-        { error: 'user_not_found', message: '用户不存在' },
-        { status: 404 }
-      )
-    }
-
-    // 查询活跃订阅
+    let plan = 'free'
+    let credits = 0
+    let creditsExpiry = null
+    let freeUsed = 0
+    let subUsed = 0
+    let subTotal = 0
     let subscription = null
-    const sub = await DB.prepare(
-      "SELECT id, plan_type, status, credits_per_month, start_date, end_date, created_at FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
-    ).bind(userId).first()
 
-    if (sub) {
-      subscription = {
-        planType: sub.plan_type,
-        status: sub.status,
-        creditsPerMonth: sub.credits_per_month,
-        startDate: sub.start_date,
-        periodEnd: sub.period_end,
-        createdAt: sub.created_at,
+    if (DB && DB.prepare) {
+      const user = await DB.prepare(
+        "SELECT plan, credits, credits_expiry, cloud_used_lifetime FROM users WHERE id = ?"
+      ).bind(userId).first()
+
+      if (user) {
+        plan = user.plan as string
+        credits = user.credits as number || 0
+        creditsExpiry = user.credits_expiry as string | null
+        freeUsed = user.cloud_used_lifetime as number || 0
+      }
+
+      // 清理过期积分
+      if (credits > 0 && creditsExpiry && new Date(creditsExpiry) < new Date()) {
+        credits = 0
+      }
+
+      // 月订阅用量
+      if (plan !== 'free') {
+        const sub = await DB.prepare(
+          "SELECT id, plan_type, credits_per_month, period_start, period_end FROM subscriptions WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
+        ).bind(userId).first()
+
+        if (sub) {
+          subscription = {
+            planType: sub.plan_type,
+            status: sub.status,
+            creditsPerMonth: sub.credits_per_month,
+            periodEnd: sub.period_end,
+          }
+          subTotal = sub.credits_per_month as number || 0
+
+          // 检查周期是否过期，自动续期
+          if (sub.periodEnd && new Date(sub.periodEnd) < new Date()) {
+            const newStart = sub.periodEnd
+            const newEnd = new Date(new Date(newStart).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+            await DB.prepare(
+              "UPDATE subscriptions SET period_start = ?, period_end = ? WHERE id = ?"
+            ).bind(newStart, newEnd, sub.id).run()
+            subTotal = sub.credits_per_month
+            subUsed = 0
+          } else {
+            const periodKey = (sub.period_start || '').slice(0, 7)
+            const row = await DB.prepare(
+              "SELECT cloud_used FROM usage WHERE user_id = ? AND month = ?"
+            ).bind(userId, periodKey).first()
+            subUsed = row ? (row.cloud_used as number) : 0
+          }
+        }
       }
     }
 
-    return NextResponse.json({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      avatarUrl: user.avatar_url,
-      plan: user.plan,
-      createdAt: user.created_at,
-      credits: user.credits || 0,
-      creditsExpiry: user.credits_expiry,
-      subscription,
-    })
+    return NextResponse.json({ plan, credits, creditsExpiry, freeUsed, subUsed, subTotal, subscription })
   } catch (error) {
     console.error('Account API error:', error)
     return NextResponse.json(

@@ -1,49 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSessionFromRequest } from '@/lib/session'
 
 export const runtime = "edge"
 
-const SUBSCRIPTION_PLANS: Record<string, { name: string; creditsPerMonth: number; amount: number }> = {
-  monthly_basic: { name: '基础版', creditsPerMonth: 25, amount: 9.99 },
-  monthly_pro: { name: '进阶版', creditsPerMonth: 60, amount: 19.99 },
+const PLAN_CONFIG: Record<string, { credits?: number; creditsPerMonth?: number }> = {
+  credits_10: { credits: 10 },
+  credits_30: { credits: 30 },
+  credits_80: { credits: 80 },
+  monthly_basic: { creditsPerMonth: 25 },
+  monthly_pro: { creditsPerMonth: 60 },
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // 先解析 body，再检查登录（避免 auth() 报错导致整个请求失败）
-    let planId = ''
-    try {
-      const body = await request.json()
-      planId = body.planId || ''
-    } catch {
+    const session = getSessionFromRequest(request)
+    if (!session?.user?.id) {
       return NextResponse.json(
-        { error: 'invalid_request', message: '请求格式错误' },
-        { status: 400 }
+        { error: 'unauthorized', message: '请先登录' },
+        { status: 401 }
       )
     }
 
-    // 检查登录 — 如果失败，跳登录页
-    const { env } = (globalThis as any).cloudflare?.env || {}
-    const { DB } = env || {}
-    const authHeader = request.headers.get('x-auth-session')
-
-    if (!authHeader) {
-      // 尝试用 cookie session
-      const cookie = request.headers.get('cookie') || ''
-      const sessionMatch = cookie.match(/next-auth\.session-token=([^;]+)/)
-
-      if (!sessionMatch) {
-        return NextResponse.json(
-          { error: 'unauthorized', message: '请先登录', redirect: '/api/auth/signin' },
-          { status: 401 }
-        )
-      }
-    }
-
-    const plan = SUBSCRIPTION_PLANS[planId]
+    const { planId } = await request.json()
+    const plan = PLAN_CONFIG[planId]
 
     if (!plan) {
       return NextResponse.json(
-        { error: 'invalid_plan', message: '无效的订阅套餐' },
+        { error: 'invalid_plan', message: '无效的套餐' },
         { status: 400 }
       )
     }
@@ -58,7 +41,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 获取 PayPal Access Token
     const tokenRes = await fetch('https://api-m.sandbox.paypal.com/v1/oauth2/token', {
       method: 'POST',
       headers: {
@@ -69,7 +51,6 @@ export async function POST(request: NextRequest) {
     })
 
     if (!tokenRes.ok) {
-      console.error('PayPal token error:', tokenRes.status, await tokenRes.text())
       return NextResponse.json(
         { error: 'paypal_error', message: '支付服务暂不可用' },
         { status: 502 }
@@ -77,25 +58,10 @@ export async function POST(request: NextRequest) {
     }
 
     const { access_token } = await tokenRes.json()
+
     const baseUrl = process.env.NEXTAUTH_URL || 'https://www.bg-remover.site'
 
-    // 从 cookie 或 header 获取 userId
-    let userId = ''
-    if (authHeader) {
-      try {
-        const session = JSON.parse(authHeader)
-        userId = session?.user?.id || ''
-      } catch {}
-    }
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'unauthorized', message: '无法识别用户，请重新登录', redirect: '/api/auth/signin' },
-        { status: 401 }
-      )
-    }
-
-    // 用一次性支付方式创建月订阅订单
+    // 创建订阅订单
     const orderRes = await fetch('https://api-m.sandbox.paypal.com/v2/checkout/orders', {
       method: 'POST',
       headers: {
@@ -105,12 +71,12 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         intent: 'CAPTURE',
         purchase_units: [{
-          description: `BGFree ${plan.name} - 月订阅（首月）`,
+          description: `BGFree 月订阅 - ${planId.replace('_', ' ')}`,
           amount: {
             currency_code: 'USD',
-            value: plan.amount.toFixed(2),
+            value: plan.creditsPerMonth ? (plan.creditsPerMonth * 0.40).toFixed(2) : (plan.credits || 0).toFixed(2),
           },
-          custom_id: `${userId}:sub:${planId}`,
+          custom_id: `${session.user.id}:sub:${planId}`,
         }],
         application_context: {
           brand_name: 'BGFree',
@@ -122,10 +88,8 @@ export async function POST(request: NextRequest) {
     })
 
     if (!orderRes.ok) {
-      const errText = await orderRes.text()
-      console.error('PayPal order error:', errText)
       return NextResponse.json(
-        { error: 'paypal_error', message: '创建订单失败', details: errText.slice(0, 300) },
+        { error: 'paypal_error', message: '创建订单失败' },
         { status: 502 }
       )
     }
@@ -133,16 +97,16 @@ export async function POST(request: NextRequest) {
     const orderData = await orderRes.json()
 
     // 保存 pending 订单到 D1
+    const { DB } = (globalThis as any).cloudflare?.env || {}
     if (DB && DB.prepare) {
       await DB.prepare(
         "INSERT INTO payments (id, user_id, paypal_order_id, plan_type, amount, status) VALUES (?, ?, ?, ?, 'pending')"
-      ).bind(orderData.id, userId, orderData.id, planId, plan.amount).run()
+      ).bind(orderData.id, session.user.id, orderData.id, planId).run()
     }
 
     const approvalUrl = orderData.links?.find((l: any) => l.rel === 'approve')?.href
 
     if (!approvalUrl) {
-      console.error('No approve link found:', JSON.stringify(orderData.links).slice(0, 300))
       return NextResponse.json(
         { error: 'paypal_error', message: '支付链接生成失败' },
         { status: 502 }
@@ -151,12 +115,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       orderId: orderData.id,
-      approvalUrl: approvalUrl,
+      approvalUrl: approveLink,
     })
   } catch (error) {
     console.error('Create subscription error:', error)
     return NextResponse.json(
-      { error: 'internal_error', message: '服务异常: ' + (error instanceof Error ? error.message : String(error)).slice(0, 200) },
+      { error: 'internal_error', message: '服务异常' },
       { status: 500 }
     )
   }

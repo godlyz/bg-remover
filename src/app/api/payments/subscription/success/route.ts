@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSessionFromRequest } from '@/lib/session'
 
 export const runtime = "edge"
 
@@ -6,7 +7,6 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const token = searchParams.get('token')
-    const planId = searchParams.get('planId') || ''
 
     if (!token) {
       return NextResponse.redirect(new URL('/payment?status=failed', request.url))
@@ -54,34 +54,48 @@ export async function GET(request: NextRequest) {
     const paypalOrderId = capture.id
     const customId = capture.purchase_units?.[0]?.custom_id || ''
     const amount = parseFloat(capture.purchase_units?.[0]?.amount?.value || '0')
-    const [userId, pType, actualPlanId] = customId.split(':')
+    const parts = customId.split(':')
+    const userId = parts[0]
+    const actualPlanId = parts.slice(2)
 
     // 更新 D1
     const { DB } = (globalThis as any).cloudflare?.env || {}
 
     if (DB && DB.prepare && userId) {
-      // 更新支付记录状态
+      // 更新支付记录
       await DB.prepare(
         "UPDATE payments SET status = 'completed', completed_at = datetime('now'), amount = ? WHERE paypal_order_id = ?"
       ).bind(amount, paypalOrderId).run()
 
-      const planValue = actualPlanId === 'monthly_pro' ? 'pro' : 'starter'
+      // 更新用户积分或套餐
+      const planValue = actualPlanId === 'monthly_pro' ? 'pro' : actualPlanId === 'monthly_basic' ? 'starter' : 'free'
+      let type = ''
 
-      // 更新用户套餐
-      await DB.prepare(
-        "UPDATE users SET plan = ?, updated_at = datetime('now') WHERE id = ?"
-      ).bind(planValue, userId).run()
+      if (actualPlanId.startsWith('monthly_')) {
+        // 月订阅
+        type = 'subscription'
+        await DB.prepare(
+          "UPDATE users SET plan = ?, updated_at = datetime('now') WHERE id = ?"
+        ).bind(planValue, userId).run()
 
-      // 创建订阅记录（本地管理周期）
-      const subId = `sub_${crypto.randomUUID().replace(/-/g, '')}`
-      const now = new Date()
-      const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
-      await DB.prepare(
-        "INSERT OR REPLACE INTO subscriptions (id, user_id, plan_type, status, credits_per_month, period_start, period_end, start_date) VALUES (?, ?, ?, 'active', ?, ?, ?, datetime('now'))"
-      ).bind(subId, userId, actualPlanId, planValue === 'pro' ? 60 : 25, now.toISOString(), periodEnd).run()
+        // 创建订阅记录
+        const subId = `sub_${crypto.randomUUID().replace(/-/g, '')}`
+        const now = new Date()
+        const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+        await DB.prepare(
+          "INSERT OR REPLACE INTO subscriptions (id, user_id, plan_type, status, credits_per_month, period_start, period_end, start_date) VALUES (?, ?, ?, 'active', ?, ?, ?, datetime('now'))"
+        ).bind(subId, userId, actualPlanId, planValue === 'pro' ? 60 : 25, now.toISOString(), periodEnd).run()
+      } else {
+        // 积分包
+        type = 'credits'
+        const credits = PLAN_CONFIG[actualPlanId]?.credits || 0
+        await DB.prepare(
+          "UPDATE users SET credits = credits + ?, credits_expiry = datetime('now', '+365 days), updated_at = datetime('now') WHERE id = ?"
+        ).bind(credits, userId).run()
+      }
     }
 
-    return NextResponse.redirect(new URL('/payment?status=success&type=subscription', request.url))
+    return NextResponse.redirect(new URL(`/payment?status=success&type=${type}`, request.url))
   } catch (error) {
     console.error('Subscription success error:', error)
     return NextResponse.redirect(new URL('/payment?status=failed', request.url))
