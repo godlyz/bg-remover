@@ -40,7 +40,7 @@ function PaymentResultContent() {
         ) : (
           status === 'cancelled'
             ? '你已取消支付，如有问题请重试'
-            : '支付遇到问题，请检查网络后重试'
+            : decodeURIComponent(searchParams.get('msg') || '支付遇到问题，请检查网络后重试')
         )}
       </p>
 

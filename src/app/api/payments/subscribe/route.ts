@@ -87,10 +87,9 @@ export async function POST(request: NextRequest) {
     })
 
     if (!subRes.ok) {
-      const errData = await subRes.json().catch(() => ({}))
-      console.error('PayPal subscription error:', errData)
+      const errText = await subRes.text()
       return NextResponse.json(
-        { error: 'paypal_error', message: '创建订阅失败' },
+        { error: 'paypal_error', message: '创建订阅失败', details: errText.slice(0, 300) },
         { status: 502 }
       )
     }

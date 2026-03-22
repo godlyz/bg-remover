@@ -111,7 +111,11 @@ export default function PricingPage() {
       }
 
       if (data.error) {
-        alert(data.message || '操作失败')
+        if (data.approvalUrl) {
+          window.location.href = data.approvalUrl
+        } else {
+          window.location.href = `/payment?status=failed&msg=${encodeURIComponent(data.details || data.message || '操作失败')}`
+        }
         return
       }
 
