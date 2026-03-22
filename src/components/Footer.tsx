@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { EngineType } from '@/types';
 
 /** Footer 组件 - 底部信息栏 */
@@ -10,7 +11,7 @@ export default function Footer({ engine }: FooterProps) {
     <footer className="mt-auto border-t border-gray-100 bg-gray-50/80">
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
         {/* 标签 */}
-        <div className="mb-3 flex flex-wrap items-center justify-center gap-3 text-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-center gap-3 text-sm">
           {engine === 'local' ? (
             <>
               <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-3 py-1 text-green-700">
@@ -42,6 +43,12 @@ export default function Footer({ engine }: FooterProps) {
               </span>
             </>
           )}
+        </div>
+
+        {/* 链接 */}
+        <div className="mb-3 flex items-center justify-center gap-4 text-sm">
+          <Link href="/pricing" className="text-gray-400 hover:text-gray-600 transition-colors">定价</Link>
+          <Link href="/account" className="text-gray-400 hover:text-gray-600 transition-colors">个人中心</Link>
         </div>
 
         {/* 版权 */}

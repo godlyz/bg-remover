@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.redirect(new URL('/?payment=failed', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
     const { searchParams } = new URL(request.url)
@@ -16,14 +16,14 @@ export async function GET(request: NextRequest) {
     const planType = searchParams.get('planType') || ''
 
     if (!subscriptionId || !ba_token) {
-      return NextResponse.redirect(new URL('/?payment=failed&reason=missing_params', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed&reason=missing_params', request.url))
     }
 
     const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID
     const PAYPAL_SECRET = process.env.PAYPAL_SECRET
 
     if (!PAYPAL_CLIENT_ID || !PAYPAL_SECRET) {
-      return NextResponse.redirect(new URL('/?payment=failed&reason=config', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed&reason=config', request.url))
     }
 
     // 获取 PayPal Token
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     })
 
     if (!tokenRes.ok) {
-      return NextResponse.redirect(new URL('/?payment=failed&reason=paypal_token', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed&reason=paypal_token', request.url))
     }
 
     const { access_token } = await tokenRes.json()
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
 
     if (!actRes.ok) {
       console.error('Activate subscription failed:', await actRes.text())
-      return NextResponse.redirect(new URL('/?payment=failed&reason=activate', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed&reason=activate', request.url))
     }
 
     // 更新 D1
@@ -84,9 +84,9 @@ export async function GET(request: NextRequest) {
       ).bind(paymentId, userId, subscriptionId, planType, amount).run()
     }
 
-    return NextResponse.redirect(new URL('/?payment=success&type=subscription', request.url))
+    return NextResponse.redirect(new URL('/payment?status=success&type=subscription', request.url))
   } catch (error) {
     console.error('Subscription success error:', error)
-    return NextResponse.redirect(new URL('/?payment=failed&reason=error', request.url))
+    return NextResponse.redirect(new URL('/payment?status=failed&reason=error', request.url))
   }
 }

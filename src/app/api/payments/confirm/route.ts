@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) {
-      return NextResponse.redirect(new URL('/?payment=failed', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
     const { searchParams } = new URL(request.url)
@@ -24,14 +24,14 @@ export async function GET(request: NextRequest) {
     const planType = searchParams.get('planType') || ''
 
     if (!token) {
-      return NextResponse.redirect(new URL('/?payment=failed', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed', request.url))
     }
 
     const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID
     const PAYPAL_SECRET = process.env.PAYPAL_SECRET
 
     if (!PAYPAL_CLIENT_ID || !PAYPAL_SECRET) {
-      return NextResponse.redirect(new URL('/?payment=failed&reason=config', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed&reason=config', request.url))
     }
 
     // 获取 PayPal Access Token
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     })
 
     if (!tokenRes.ok) {
-      return NextResponse.redirect(new URL('/?payment=failed&reason=paypal_token', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed&reason=paypal_token', request.url))
     }
 
     const { access_token } = await tokenRes.json()
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
 
     if (!captureRes.ok || capture.status !== 'COMPLETED') {
       console.error('PayPal capture failed:', capture)
-      return NextResponse.redirect(new URL('/?payment=failed&reason=capture', request.url))
+      return NextResponse.redirect(new URL('/payment?status=failed&reason=capture', request.url))
     }
 
     const paypalOrderId = capture.id
@@ -103,9 +103,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.redirect(new URL('/?payment=success', request.url))
+    return NextResponse.redirect(new URL('/payment?status=success&type=credit', request.url))
   } catch (error) {
     console.error('Payment confirm error:', error)
-    return NextResponse.redirect(new URL('/?payment=failed&reason=error', request.url))
+    return NextResponse.redirect(new URL('/payment?status=failed&reason=error', request.url))
   }
 }
