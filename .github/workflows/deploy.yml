@@ -26,6 +26,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Build for Cloudflare Pages
+        run: pnpm pages:build
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
