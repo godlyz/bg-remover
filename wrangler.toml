@@ -1,0 +1,25 @@
+name = "bg-remover"
+pages_build_output_dir = ".vercel/output/static"
+compatibility_date = "2026-03-22"
+compatibility_flags = [ "nodejs_compat" ]
+
+[vars]
+NEXTAUTH_URL = "https://www.bg-remover.site"
+AUTH_URL = "https://www.bg-remover.site"
+
+[env.production]
+compatibility_date = "2026-03-22"
+compatibility_flags = [ "nodejs_compat" ]
+
+[env.production.vars]
+NEXTAUTH_URL = "https://www.bg-remover.site"
+AUTH_URL = "https://www.bg-remover.site"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_id = "a4d77ae3-c6aa-44a3-85ae-dd1ce1c8f0ef"
+database_name = "DB"
+
+[[env.production.kv_namespaces]]
+binding = "KV"
+id = "43d5c64217f64ebcaa8a17d08ac7c310"
