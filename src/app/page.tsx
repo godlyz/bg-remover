@@ -66,10 +66,44 @@ function HomeContent() {
       setProgress({ label: "Initializing...", percent: 0, detail: "" });
 
       try {
+        const startTime = Date.now();
+
         if (targetEngine === "cloud") {
-          // Cloud engine — placeholder for M6
-          showToast("info", "Pro Quality mode coming soon! Using local engine for now.");
-          // Fall through to local processing
+          // Cloud engine — call /api/remove-bg (requires login + credits)
+          setProgress({ label: "Uploading to cloud...", percent: 10, detail: "" });
+
+          const formData = new FormData();
+          formData.append("image", file);
+
+          const resp = await fetch("/api/remove-bg", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            if (resp.status === 401) {
+              throw new Error("Please login to use Pro Quality mode");
+            }
+            if (resp.status === 402) {
+              const balance = (errData as any).balance || 0;
+              throw new Error(`No credits remaining (${balance}). Please purchase credits.`);
+            }
+            throw new Error((errData as any).error || `Processing failed (${resp.status})`);
+          }
+
+          const creditsRemaining = resp.headers.get("X-Credits-Remaining");
+          const blob = await resp.blob();
+
+          setResultBlob(blob);
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          if (creditsRemaining) {
+            showToast("success", `Done in ${elapsed}s · ${creditsRemaining} credits remaining`);
+          } else {
+            showToast("success", `Background removed in ${elapsed}s`);
+          }
+          setProgress({ label: "Done!", percent: 100, detail: "" });
+          return;
         }
 
         // Local engine — @imgly/background-removal (loaded from CDN)
@@ -91,7 +125,6 @@ function HomeContent() {
         };
 
         const timeoutMs = 120000; // 2 minutes total timeout
-        const startTime = Date.now();
 
         const blob = await Promise.race([
           removeBackground(file, {
