@@ -64,7 +64,7 @@ export async function GET(request: Request) {
         .bind(googleUser.name, googleUser.picture, userId)
         .run();
     } else {
-      const id = googleUser.sub.slice(0, 20);
+      const id = "u_" + googleUser.sub.slice(0, 18);
       await (env.DB as any).prepare(
         "INSERT INTO users (id, google_id, email, name, avatar_url, plan) VALUES (?, ?, ?, ?, ?, ?)"
       ).bind(id, googleUser.sub, googleUser.email, googleUser.name, googleUser.picture, "free").run();
