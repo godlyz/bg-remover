@@ -2,13 +2,24 @@ export const runtime = "edge";
 
 import { generateState, getGoogleAuthURL } from "@/lib/auth";
 
-function getEnv(): any {
+async function getEnv(): Promise<any> {
   const ctx = (globalThis as any)[Symbol.for("__cloudflare-request-context__")];
-  return ctx?.env || {};
+  if (ctx?.env?.GOOGLE_CLIENT_ID) return ctx.env;
+
+  // Fallback: try getRequestContext directly
+  try {
+    const mod = await import(
+      /* webpackIgnore: true */
+      "@cloudflare/next-on-pages" as string
+    );
+    return mod.getRequestContext().env;
+  } catch {
+    return ctx?.env || {};
+  }
 }
 
 export async function GET(request: Request) {
-  const env = getEnv();
+  const env = await getEnv();
 
   if (!env.GOOGLE_CLIENT_ID) {
     return new Response("GOOGLE_CLIENT_ID not configured", { status: 500 });

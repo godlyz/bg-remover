@@ -2,19 +2,29 @@ export const runtime = "edge";
 
 import { exchangeCodeForToken, decodeGoogleIdToken, generateSessionToken, setSessionCookie, getAuthUrl } from "@/lib/auth";
 
-function getEnv(): any {
+async function getEnv(): Promise<any> {
   const ctx = (globalThis as any)[Symbol.for("__cloudflare-request-context__")];
-  return ctx?.env || {};
+  if (ctx?.env?.GOOGLE_CLIENT_ID) return ctx.env;
+
+  try {
+    const mod = await import(
+      /* webpackIgnore: true */
+      "@cloudflare/next-on-pages" as string
+    );
+    return mod.getRequestContext().env;
+  } catch {
+    return ctx?.env || {};
+  }
 }
 
 export async function GET(request: Request) {
-  const env = getEnv();
-  const authUrl = getAuthUrl(env);
+  const env = await getEnv();
 
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const error = url.searchParams.get("error");
+  const authUrl = getAuthUrl(env);
 
   if (error || !code || !state) {
     return Response.redirect(`${authUrl}?error=auth_failed`, 302);
