@@ -182,52 +182,20 @@ function HomeContent() {
         {/* Engine Switcher */}
         <EngineSwitcher engine={engine} onSwitch={handleEngineSwitch} disabled={processing} />
 
-        {/* Upload or Result */}
-        {!resultBlob ? (
-          <>
-            <ImageUploader
-              onFileSelect={handleFileSelect}
-              disabled={processing}
-              engine={engine}
-            />
-            {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
+        {/* Upload area (only show when no file selected) */}
+        {!selectedFile ? (
+          <ImageUploader
+            onFileSelect={handleFileSelect}
+            disabled={processing}
+            engine={engine}
+          />
+        ) : null}
 
-            {/* Features section */}
-            {!selectedFile && (
-              <div className="mt-12 w-full max-w-3xl mx-auto">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="text-center p-6">
-                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                      <svg className="w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                      </svg>
-                    </div>
-                    <h3 className="font-semibold text-gray-900">Upload</h3>
-                    <p className="text-gray-500 text-sm mt-1">Drag & drop, click, or Ctrl+V paste</p>
-                  </div>
-                  <div className="text-center p-6">
-                    <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                      <svg className="w-6 h-6 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.504.05-.748.09-.74.137-1.512.32-2.228.493-2.97L9.75 3.104z" />
-                      </svg>
-                    </div>
-                    <h3 className="font-semibold text-gray-900">AI Processing</h3>
-                    <p className="text-gray-500 text-sm mt-1">AI removes background in seconds</p>
-                  </div>
-                  <div className="text-center p-6">
-                    <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                      <svg className="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m9 0l4.5-4.5" />
-                      </svg>
-                    </div>
-                    <h3 className="font-semibold text-gray-900">Download</h3>
-                    <p className="text-gray-500 text-sm mt-1">Get transparent PNG instantly</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
+        {/* Error message */}
+        {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
+
+        {/* Processing or Result view */}
+        {selectedFile ? (
           <ResultPreview
             originalUrl={originalUrl}
             resultBlob={resultBlob}
@@ -236,6 +204,41 @@ function HomeContent() {
             progress={progress.percent > 0 ? progress : undefined}
             onReset={handleReset}
           />
+        ) : null}
+
+            {/* Features section */}
+        {!selectedFile && (
+          <div className="mt-12 w-full max-w-3xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="text-center p-6">
+                <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                </div>
+                <h3 className="font-semibold text-gray-900">Upload</h3>
+                <p className="text-gray-500 text-sm mt-1">Drag & drop, click, or Ctrl+V paste</p>
+              </div>
+              <div className="text-center p-6">
+                <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.504.05-.748.09-.74.137-1.512.32-2.228.493-2.97L9.75 3.104z" />
+                  </svg>
+                </div>
+                <h3 className="font-semibold text-gray-900">AI Processing</h3>
+                <p className="text-gray-500 text-sm mt-1">AI removes background in seconds</p>
+              </div>
+              <div className="text-center p-6">
+                <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m9 0l4.5-4.5" />
+                  </svg>
+                </div>
+                <h3 className="font-semibold text-gray-900">Download</h3>
+                <p className="text-gray-500 text-sm mt-1">Get transparent PNG instantly</p>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Footer info */}
