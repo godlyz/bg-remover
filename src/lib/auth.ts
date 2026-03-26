@@ -58,7 +58,10 @@ export function decodeGoogleIdToken(
 ): { sub: string; email: string; name: string; picture: string | null } {
   const parts = idToken.split(".");
   if (parts.length !== 3) throw new Error("Invalid id_token");
-  const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+  const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(base64);
+  const bytes = new Uint8Array([...binary].map(c => c.charCodeAt(0)));
+  const payload = JSON.parse(new TextDecoder().decode(bytes));
   return {
     sub: payload.sub,
     email: payload.email,
