@@ -182,18 +182,20 @@ export default function ResultPreview({
           <div
             ref={compareRef}
             className="relative select-none cursor-col-resize"
+            style={{ maxHeight: "500px" }}
             onMouseDown={() => setIsDragging(true)}
             onTouchStart={() => setIsDragging(true)}
           >
-            {/* Original (full width) */}
+            {/* Original (full width, underneath) */}
             <img
               src={originalUrl}
               alt="Original"
-              className="w-full h-auto max-h-[500px] object-contain block"
+              className="w-full h-auto block"
+              style={{ maxHeight: "500px", objectFit: "contain" }}
               draggable={false}
             />
 
-            {/* Result (clipped) */}
+            {/* Result overlay (clipped by slider) */}
             <div
               className="absolute top-0 left-0 h-full overflow-hidden"
               style={{
@@ -206,11 +208,11 @@ export default function ResultPreview({
               {bgColor && (
                 <div className="absolute inset-0" style={{ backgroundColor: bgColor }} />
               )}
+              {/* Result image — same intrinsic size as container, positioned to align pixel-perfect */}
               <img
                 src={resultUrl}
                 alt="Result"
-                className="absolute top-0 left-0 h-full object-contain"
-                style={{ width: compareRef.current?.offsetWidth ? `${compareRef.current.offsetWidth}px` : "100vw" }}
+                className="absolute top-0 left-0 w-full h-full object-contain"
                 draggable={false}
               />
             </div>
