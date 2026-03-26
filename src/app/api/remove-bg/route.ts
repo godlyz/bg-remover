@@ -132,12 +132,14 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
+    console.error("Remove.bg API error:", err instanceof Error ? err.message : String(err));
     // Refund credit on error
     if (creditResult.packId) {
       await env.DB.prepare(
         "UPDATE credit_packs SET remaining_credits = remaining_credits + 1 WHERE id = ?"
       ).bind(creditResult.packId).run();
     }
-    return Response.json({ error: "Processing error. Credit refunded." }, { status: 500 });
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return Response.json({ error: `Processing error: ${msg}. Credit refunded.` }, { status: 500 });
   }
 }
