@@ -3,17 +3,9 @@ pages_build_output_dir = ".vercel/output/static"
 compatibility_date = "2026-03-22"
 compatibility_flags = [ "nodejs_compat" ]
 
-[vars]
-NEXTAUTH_URL = "https://www.bg-remover.site"
-AUTH_URL = "https://www.bg-remover.site"
-
 [env.production]
 compatibility_date = "2026-03-22"
 compatibility_flags = [ "nodejs_compat" ]
-
-[env.production.vars]
-NEXTAUTH_URL = "https://www.bg-remover.site"
-AUTH_URL = "https://www.bg-remover.site"
 
 [[env.production.d1_databases]]
 binding = "DB"
