@@ -1,41 +1,58 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useAuth } from "./AuthProvider";
 
-interface HeaderProps {
-  user?: { name: string; email: string } | null;
-}
+export default function Header() {
+  const { user, loading, signin, signout } = useAuth();
 
-export default function Header({ user }: HeaderProps) {
   return (
-    <header className="w-full border-b border-gray-200 bg-white">
-      <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-        <a href="/" className="flex items-center gap-2 no-underline">
-          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">BG</span>
-          </div>
+    <header className="w-full border-b border-gray-100 bg-white/80 backdrop-blur-sm sticky top-0 z-30">
+      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-2">
           <span className="text-xl font-bold text-gray-900">BGFree</span>
-        </a>
+        </Link>
 
-        <nav className="flex items-center gap-4">
-          <a href="/pricing" className="text-gray-600 hover:text-gray-900 text-sm font-medium no-underline">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/pricing"
+            className="text-sm text-gray-600 hover:text-gray-900 transition"
+          >
             Pricing
-          </a>
-          {user ? (
-            <div className="flex items-center gap-3">
-              <a href="/account" className="text-gray-600 hover:text-gray-900 text-sm font-medium no-underline">
-                Account
-              </a>
-              <button className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 transition">
-                {user.name || "Account"}
+          </Link>
+
+          {loading ? (
+            <div className="w-8 h-8 rounded-full bg-gray-100 animate-pulse" />
+          ) : user ? (
+            <div className="flex items-center gap-2">
+              {user.avatarUrl ? (
+                <img
+                  src={user.avatarUrl}
+                  alt={user.name}
+                  className="w-8 h-8 rounded-full border-2 border-gray-200"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-blue-500 text-white text-sm flex items-center justify-center font-medium">
+                  {user.name?.charAt(0)?.toUpperCase() || "U"}
+                </div>
+              )}
+              <span className="text-sm text-gray-700 hidden sm:inline">{user.name}</span>
+              <button
+                onClick={signout}
+                className="text-sm text-gray-400 hover:text-gray-600 transition"
+              >
+                Sign out
               </button>
             </div>
           ) : (
-            <button className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 transition">
-              Sign In
+            <button
+              onClick={signin}
+              className="px-4 py-1.5 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition"
+            >
+              Sign in
             </button>
           )}
-        </nav>
+        </div>
       </div>
     </header>
   );
