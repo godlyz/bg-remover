@@ -1,15 +1,27 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   webpack: (config, { isServer }) => {
-    // @imgly/background-removal must only run client-side, loaded via script tag at runtime
-    // to avoid webpack bundling issues with onnxruntime-web (uses import.meta)
     if (isServer) {
       config.externals = [
         ...(Array.isArray(config.externals) ? config.externals : []),
         "@imgly/background-removal",
         "onnxruntime-web",
       ];
+      return config;
     }
+
+    // Client-side: let webpack bundle onnxruntime-web but use Terser instead of SWC
+    // because onnxruntime-web uses import.meta which breaks SWC minifier.
+    const TerserPlugin = require("terser-webpack-plugin");
+    config.optimization.minimizer = [
+      new TerserPlugin({
+        parallel: true,
+        terserOptions: {
+          format: { comments: false },
+          compress: { drop_console: false },
+        },
+      }),
+    ];
 
     config.resolve.fallback = {
       ...config.resolve.fallback,
