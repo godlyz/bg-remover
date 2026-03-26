@@ -1,4 +1,6 @@
-// Auth utilities for Google OAuth 2.0 (jose-free implementation)
+// Auth utilities for Google OAuth 2.0
+
+const SITE_URL = "https://www.bg-remover.site";
 
 export function generateState(): string {
   const arr = new Uint8Array(32);
@@ -12,10 +14,15 @@ export function generateSessionToken(): string {
   return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+export function getAuthUrl(env: any): string {
+  return env?.AUTH_URL || SITE_URL;
+}
+
 export function getGoogleAuthURL(env: any, state: string): string {
+  const authUrl = getAuthUrl(env);
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID,
-    redirect_uri: `${env.AUTH_URL}/api/auth/callback/google`,
+    redirect_uri: `${authUrl}/api/auth/callback/google`,
     response_type: "code",
     scope: "openid email profile",
     state,
@@ -29,6 +36,7 @@ export async function exchangeCodeForToken(
   code: string,
   env: any
 ): Promise<{ access_token: string; id_token: string }> {
+  const authUrl = getAuthUrl(env);
   const resp = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -36,7 +44,7 @@ export async function exchangeCodeForToken(
       code,
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: `${env.AUTH_URL}/api/auth/callback/google`,
+      redirect_uri: `${authUrl}/api/auth/callback/google`,
       grant_type: "authorization_code",
     }),
   });

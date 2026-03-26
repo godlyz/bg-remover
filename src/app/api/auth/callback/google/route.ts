@@ -1,16 +1,10 @@
 export const runtime = "edge";
 
-import { exchangeCodeForToken, decodeGoogleIdToken, generateSessionToken, setSessionCookie } from "@/lib/auth";
-
-const SITE_URL = "https://www.bg-remover.site";
+import { exchangeCodeForToken, decodeGoogleIdToken, generateSessionToken, setSessionCookie, getAuthUrl } from "@/lib/auth";
 
 function getEnv(): any {
   const ctx = (globalThis as any)[Symbol.for("__cloudflare-request-context__")];
   return ctx?.env || {};
-}
-
-function getAuthUrl(env: any): string {
-  return env.AUTH_URL || SITE_URL;
 }
 
 export async function GET(request: Request) {

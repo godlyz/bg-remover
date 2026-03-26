@@ -4,17 +4,15 @@ import { generateState, getGoogleAuthURL } from "@/lib/auth";
 
 function getEnv(): any {
   const ctx = (globalThis as any)[Symbol.for("__cloudflare-request-context__")];
-  // Return the actual env if available, otherwise build a fallback
-  if (ctx?.env?.AUTH_URL) return ctx.env;
-  // Fallback: CF Pages might pass env differently
-  return ctx?.env || {
-    AUTH_URL: "https://www.bg-remover.site",
-  };
+  return ctx?.env || {};
 }
 
 export async function GET(request: Request) {
   const env = getEnv();
-  const authUrl = env.AUTH_URL || "https://www.bg-remover.site";
+
+  if (!env.GOOGLE_CLIENT_ID) {
+    return new Response("GOOGLE_CLIENT_ID not configured", { status: 500 });
+  }
 
   const state = generateState();
   if (env.KV) {
