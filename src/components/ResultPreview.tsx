@@ -79,16 +79,13 @@ export default function ResultPreview({
   if (!resultBlob) {
     return (
       <div className="w-full max-w-2xl mx-auto mt-8">
-        {/* Progress section */}
         <div className="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm">
           <div className="flex flex-col items-center gap-4">
-            {/* Spinner */}
             <div className="relative">
               <div className="w-16 h-16 border-4 border-blue-100 rounded-full" />
               <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin absolute top-0 left-0" />
             </div>
 
-            {/* Status text */}
             {progress ? (
               <div className="text-center w-full max-w-xs">
                 <p className="text-gray-700 font-medium">{progress.label}</p>
@@ -102,7 +99,6 @@ export default function ResultPreview({
               <p className="text-gray-500 text-sm">Processing your image...</p>
             )}
 
-            {/* Progress bar */}
             {progress && progress.percent > 0 && (
               <div className="w-full max-w-xs">
                 <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
@@ -117,7 +113,6 @@ export default function ResultPreview({
               </div>
             )}
 
-            {/* Info tip */}
             <p className="text-gray-400 text-xs mt-2">
               {engine === "local"
                 ? "🔒 AI model is loading in your browser — first time may take ~30 seconds"
@@ -125,7 +120,6 @@ export default function ResultPreview({
             </p>
           </div>
 
-          {/* Original preview while waiting */}
           {originalUrl && (
             <div className="mt-6 border-t border-gray-100 pt-4">
               <p className="text-gray-400 text-xs mb-2 text-center">Your uploaded image</p>
@@ -178,66 +172,17 @@ export default function ResultPreview({
       {/* Image display */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">
         {mode === "compare" ? (
-          // Slider comparison
-          <div
-            ref={compareRef}
-            className="relative select-none cursor-col-resize"
-            style={{ maxHeight: "500px" }}
-            onMouseDown={() => setIsDragging(true)}
-            onTouchStart={() => setIsDragging(true)}
-          >
-            {/* Original (full width, underneath) */}
-            <img
-              src={originalUrl}
-              alt="Original"
-              className="w-full h-auto block"
-              style={{ maxHeight: "500px", objectFit: "contain" }}
-              draggable={false}
-            />
-
-            {/* Result overlay (clipped by slider) */}
-            <div
-              className="absolute top-0 left-0 h-full overflow-hidden"
-              style={{
-                width: `${sliderPos}%`,
-                backgroundImage:
-                  "repeating-conic-gradient(#e5e7eb 0% 25%, transparent 0% 25%, transparent 50%, #e5e7eb 50%, #e5e7eb 75%, transparent 75%, transparent)",
-                backgroundSize: "16px 16px",
-              }}
-            >
-              {bgColor && (
-                <div className="absolute inset-0" style={{ backgroundColor: bgColor }} />
-              )}
-              {/* Result image — same intrinsic size as container, positioned to align pixel-perfect */}
-              <img
-                src={resultUrl}
-                alt="Result"
-                className="absolute top-0 left-0 w-full h-full object-contain"
-                draggable={false}
-              />
-            </div>
-
-            {/* Slider line */}
-            <div
-              className="absolute top-0 h-full w-0.5 bg-white shadow-lg z-20"
-              style={{ left: `${sliderPos}%` }}
-            >
-              {/* Slider handle */}
-              <div className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                </svg>
-              </div>
-            </div>
-
-            {/* Labels */}
-            <div className="absolute bottom-3 left-3 bg-black/50 text-white text-xs px-2 py-1 rounded-md z-20">
-              Result
-            </div>
-            <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-md z-20">
-              Original
-            </div>
-          </div>
+          // Slider comparison — use canvas approach for pixel-perfect alignment
+          <CompareSlider
+            originalUrl={originalUrl}
+            resultUrl={resultUrl}
+            sliderPos={sliderPos}
+            isDragging={isDragging}
+            setIsDragging={setIsDragging}
+            setSliderPos={setSliderPos}
+            bgColor={bgColor}
+            compareRef={compareRef}
+          />
         ) : mode === "result" ? (
           <div
             className="flex justify-center p-4"
@@ -282,9 +227,130 @@ export default function ResultPreview({
       </div>
 
       <p className="text-center text-gray-400 text-xs mt-2">
-        {mode === "compare" ? " ↔ Drag the slider to compare" : ""}
-        {engine === "local" ? " · Processed locally on your device" : " · Processed in cloud"}
+        {mode === "compare" ? "↔ Drag the slider to compare" : ""}
+        {engine === "local" ? " · Processed locally" : " · Processed in cloud"}
       </p>
+    </div>
+  );
+}
+
+/* ── Slider compare sub-component using canvas for pixel-perfect alignment ── */
+
+function CompareSlider({
+  originalUrl,
+  resultUrl,
+  sliderPos,
+  isDragging,
+  setIsDragging,
+  setSliderPos,
+  bgColor,
+  compareRef,
+}: {
+  originalUrl: string;
+  resultUrl: string;
+  sliderPos: number;
+  isDragging: boolean;
+  setIsDragging: (v: boolean) => void;
+  setSliderPos: (v: number) => void;
+  bgColor: string | null;
+  compareRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleMove = useCallback((clientX: number) => {
+    if (!containerRef.current || !isDragging) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    setSliderPos((x / rect.width) * 100);
+  }, [isDragging, setSliderPos]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => handleMove(e.clientX);
+    const onTouchMove = (e: TouchEvent) => handleMove(e.touches[0].clientX);
+    const onUp = () => setIsDragging(false);
+    if (isDragging) {
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("touchmove", onTouchMove);
+      window.addEventListener("mouseup", onUp);
+      window.addEventListener("touchend", onUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchend", onUp);
+    };
+  }, [isDragging, handleMove, setIsDragging]);
+
+  return (
+    <div
+      ref={(el) => {
+        (containerRef as any).current = el;
+        (compareRef as any).current = el;
+      }}
+      className="relative select-none cursor-col-resize bg-gray-100"
+      onMouseDown={() => setIsDragging(true)}
+      onTouchStart={() => setIsDragging(true)}
+    >
+      {/* Both images stacked in a grid — same cell, overlay */}
+      <div className="relative" style={{ display: "grid" }}>
+        {/* Original (bottom layer, always full) */}
+        <img
+          src={originalUrl}
+          alt="Original"
+          className="block w-full h-auto max-h-[500px] object-contain"
+          draggable={false}
+          style={{ gridArea: "1 / 1" }}
+        />
+
+        {/* Result (top layer, clipped by slider) */}
+        <div
+          className="relative overflow-hidden"
+          style={{
+            gridArea: "1 / 1",
+            width: `${sliderPos}%`,
+            maxWidth: `${sliderPos}%`,
+            backgroundImage: bgColor ? "none" : "repeating-conic-gradient(#e5e7eb 0% 25%, transparent 0% 25%, transparent 50%, #e5e7eb 50%, #e5e7eb 75%, transparent 75%, transparent)",
+            backgroundSize: "16px 16px",
+            backgroundColor: bgColor || undefined,
+          }}
+        >
+          <img
+            src={resultUrl}
+            alt="Result"
+            className="block h-auto max-h-[500px] object-contain"
+            draggable={false}
+            style={{
+              /* Make result image span the full container width so it aligns
+                 with the original. Since the container is clipped to sliderPos%,
+                 only the left portion of the result shows. */
+              width: `${10000 / sliderPos}%`,
+              maxWidth: "none",
+              minWidth: "100%",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Slider line */}
+      <div
+        className="absolute top-0 h-full w-0.5 bg-white shadow-lg z-20 pointer-events-none"
+        style={{ left: `${sliderPos}%` }}
+      >
+        <div className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center pointer-events-auto">
+          <svg className="w-5 h-5 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+          </svg>
+        </div>
+      </div>
+
+      {/* Labels */}
+      <div className="absolute bottom-3 left-3 bg-black/50 text-white text-xs px-2 py-1 rounded-md z-20 pointer-events-none">
+        Result
+      </div>
+      <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-md z-20 pointer-events-none">
+        Original
+      </div>
     </div>
   );
 }
