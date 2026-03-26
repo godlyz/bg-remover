@@ -1,5 +1,7 @@
 export const runtime = "edge";
 
+const SITE_URL = "https://www.bg-remover.site";
+
 function getEnv(): any {
   const ctx = (globalThis as any)[Symbol.for("__cloudflare-request-context__")];
   return ctx?.env || {};

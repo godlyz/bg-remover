@@ -2,13 +2,20 @@ export const runtime = "edge";
 
 import { exchangeCodeForToken, decodeGoogleIdToken, generateSessionToken, setSessionCookie } from "@/lib/auth";
 
+const SITE_URL = "https://www.bg-remover.site";
+
 function getEnv(): any {
   const ctx = (globalThis as any)[Symbol.for("__cloudflare-request-context__")];
   return ctx?.env || {};
 }
 
+function getAuthUrl(env: any): string {
+  return env.AUTH_URL || SITE_URL;
+}
+
 export async function GET(request: Request) {
   const env = getEnv();
+  const authUrl = getAuthUrl(env);
 
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -16,12 +23,12 @@ export async function GET(request: Request) {
   const error = url.searchParams.get("error");
 
   if (error || !code || !state) {
-    return Response.redirect(`${env.AUTH_URL}?error=auth_failed`, 302);
+    return Response.redirect(`${authUrl}?error=auth_failed`, 302);
   }
 
   const storedState = await env.KV.get(`oauth_state:${state}`);
   if (!storedState) {
-    return Response.redirect(`${env.AUTH_URL}?error=auth_failed`, 302);
+    return Response.redirect(`${authUrl}?error=auth_failed`, 302);
   }
   await env.KV.delete(`oauth_state:${state}`);
 
@@ -64,12 +71,12 @@ export async function GET(request: Request) {
     return new Response(null, {
       status: 302,
       headers: {
-        Location: `${env.AUTH_URL}`,
+        Location: authUrl,
         "Set-Cookie": setSessionCookie(sessionToken),
       },
     });
   } catch (err) {
     console.error("OAuth callback error:", err);
-    return Response.redirect(`${env.AUTH_URL}?error=auth_failed`, 302);
+    return Response.redirect(`${authUrl}?error=auth_failed`, 302);
   }
 }

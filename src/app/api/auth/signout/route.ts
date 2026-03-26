@@ -2,6 +2,8 @@ export const runtime = "edge";
 
 import { clearSessionCookie } from "@/lib/auth";
 
+const SITE_URL = "https://www.bg-remover.site";
+
 function getEnv(): any {
   const ctx = (globalThis as any)[Symbol.for("__cloudflare-request-context__")];
   return ctx?.env || {};
@@ -17,7 +19,7 @@ export async function POST(request: Request) {
   return new Response(null, {
     status: 302,
     headers: {
-      Location: env.AUTH_URL,
+      Location: env.AUTH_URL || SITE_URL,
       "Set-Cookie": clearSessionCookie(),
     },
   });
