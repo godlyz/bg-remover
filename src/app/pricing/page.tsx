@@ -42,6 +42,7 @@ function PricingContent() {
       // Capture the payment
       setPurchasing("capturing");
       fetch("/api/payments/capture", {
+        credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderId }),
@@ -76,6 +77,7 @@ function PricingContent() {
     setPurchasing(productId);
     try {
       const resp = await fetch("/api/payments/create-order", {
+        credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId }),

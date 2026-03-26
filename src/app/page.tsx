@@ -77,6 +77,7 @@ function HomeContent() {
 
           const resp = await fetch("/api/remove-bg", {
             method: "POST",
+            credentials: "include",
             body: formData,
           });
 
