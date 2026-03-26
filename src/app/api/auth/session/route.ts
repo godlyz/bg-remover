@@ -1,13 +1,15 @@
 export const runtime = "edge";
 
-interface AppContext {
-  env: { KV: any };
+function getEnv(): any {
+  const ctx = (globalThis as any)[Symbol.for("__cloudflare-request-context__")];
+  return ctx?.env || {};
 }
 
-export async function GET(request: Request, context: AppContext) {
+export async function GET(request: Request) {
+  const env = getEnv();
   const cookie = request.headers.get("Cookie") || "";
   const match = cookie.match(/bgfree-session=([^;]+)/);
   if (!match) return Response.json({ user: null });
-  const session = await context.env.KV.get(`session:${match[1]}`, "json");
+  const session = await env.KV.get(`session:${match[1]}`, "json");
   return Response.json({ user: session || null });
 }

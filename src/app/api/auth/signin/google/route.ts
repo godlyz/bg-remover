@@ -2,15 +2,22 @@ export const runtime = "edge";
 
 import { generateState, getGoogleAuthURL } from "@/lib/auth";
 
-interface AppContext {
-  env: { KV: any; AUTH_URL: string; GOOGLE_CLIENT_ID: string };
+function getEnv(): any {
+  const ctx = (globalThis as any)[Symbol.for("__cloudflare-request-context__")];
+  return ctx?.env || {};
 }
 
-export async function GET(request: Request, context: AppContext) {
+export async function GET(request: Request) {
+  const env = getEnv();
+
+  if (!env.AUTH_URL) {
+    return new Response("AUTH_URL not configured", { status: 500 });
+  }
+
   const state = generateState();
-  await context.env.KV.put(`oauth_state:${state}`, "1", {
+  await env.KV.put(`oauth_state:${state}`, "1", {
     expirationTtl: 300,
   });
-  const url = getGoogleAuthURL(context.env, state);
+  const url = getGoogleAuthURL(env, state);
   return Response.redirect(url, 302);
 }
