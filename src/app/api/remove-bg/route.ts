@@ -1,6 +1,6 @@
 export const runtime = "edge";
 
-import { getEnv, dbFirst, dbRun } from "@/lib/d1";
+import { getEnv, dbRun } from "@/lib/d1";
 import { getCreditBalance, consumeCredit } from "@/lib/credits";
 
 // Remove.bg API — 3 key rotation (pick least used)
