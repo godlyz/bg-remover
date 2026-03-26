@@ -1,18 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   webpack: (config, { isServer }) => {
-    // @imgly/background-removal and onnxruntime-web should only be loaded client-side at runtime
-    // via dynamic import(). Exclude from both server and client bundles to avoid webpack
-    // trying to parse import.meta statements in onnxruntime-web.
-    if (!isServer) {
-      config.resolve.alias = {
-        ...config.resolve.alias,
-        // Make onnxruntime-web resolve to false during build — it loads itself at runtime
-        "onnxruntime-web": false,
-      };
-    }
-
-    // Server-side: exclude entirely
+    // @imgly/background-removal must only run client-side, loaded via script tag at runtime
+    // to avoid webpack bundling issues with onnxruntime-web (uses import.meta)
     if (isServer) {
       config.externals = [
         ...(Array.isArray(config.externals) ? config.externals : []),

@@ -72,11 +72,11 @@ function HomeContent() {
           // Fall through to local processing
         }
 
-        // Local engine — @imgly/background-removal
-        setProgress({ label: "Loading AI model...", percent: 5, detail: "" });
+        // Local engine — @imgly/background-removal (loaded from CDN)
+        setProgress({ label: "Loading AI engine...", percent: 5, detail: "" });
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const removeBackground = (await import("@imgly/background-removal")).default as any;
+        const { loadBgRemoval } = await import("@/utils/bgRemovalLoader");
+        const removeBackground = await loadBgRemoval();
 
         const config = {
           publicPath: "https://staticimgly.com/@imgly/background-removal-data/1.7.0/dist/",
