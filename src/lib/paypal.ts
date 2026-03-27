@@ -23,8 +23,11 @@ export function getExpiryDate(productId: PayPalProductId): string {
 }
 
 // Get PayPal API base URL (sandbox vs production)
-export function getPayPalBaseUrl(env: any): string {
-  const useSandbox = env.PAYPAL_SANDBOX !== "false";
+// Reads from site_config table first, falls back to env variable
+export async function getPayPalBaseUrl(env: any): Promise<string> {
+  const configs = await getSiteConfig(env);
+  const sandboxValue = configs.PAYPAL_SANDBOX ?? env.PAYPAL_SANDBOX;
+  const useSandbox = sandboxValue !== "false";
   return useSandbox
     ? "https://api-m.sandbox.paypal.com"
     : "https://api-m.paypal.com";
@@ -32,7 +35,7 @@ export function getPayPalBaseUrl(env: any): string {
 
 // Get PayPal access token
 export async function getPayPalAccessToken(env: any): Promise<string> {
-  const baseUrl = getPayPalBaseUrl(env);
+  const baseUrl = await getPayPalBaseUrl(env);
   const configs = await getSiteConfig(env);
   const clientId = configs.PAYPAL_CLIENT_ID || env.PAYPAL_CLIENT_ID;
   const clientSecret = configs.PAYPAL_CLIENT_SECRET || env.PAYPAL_CLIENT_SECRET;

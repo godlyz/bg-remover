@@ -22,7 +22,7 @@ export async function POST(request: Request) {
 
       // Capture the payment
       const accessToken = await getPayPalAccessToken(env);
-      const baseUrl = getPayPalBaseUrl(env);
+      const baseUrl = await getPayPalBaseUrl(env);
 
       const captureResp = await fetch(`${baseUrl}/v2/checkout/orders/${orderId}/capture`, {
         method: "POST",

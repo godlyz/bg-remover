@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   try {
     // Get PayPal access token
     const accessToken = await getPayPalAccessToken(env);
-    const baseUrl = getPayPalBaseUrl(env);
+    const baseUrl = await getPayPalBaseUrl(env);
 
     const configs: Record<string, string> = {};
     try {
